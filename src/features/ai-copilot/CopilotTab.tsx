@@ -1,14 +1,15 @@
 import { useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Send, Upload, Loader2, Sparkles, FileText, ChevronRight } from "lucide-react";
+import { Send, Upload, Loader2, Sparkles, FileText, ChevronRight, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
-import { CURRENT_USER } from "@/mocks/users";
+import { useAuthStore } from "@/store/auth-store";
 import { PROMPTS } from "@/mocks/prompts";
-import { COPILOT_INITIAL_MESSAGES, COPILOT_QUICK_REPLIES, COPILOT_TRANSCRIPT_RESPONSE } from "@/mocks/copilot";
+import { COPILOT_INITIAL_MESSAGES } from "@/mocks/copilot";
+import { sendChatMessage, type ChatMessage } from "@/lib/chat";
 import type { Project, ProjectPhase } from "@/types";
 
 interface Message {
@@ -26,9 +27,11 @@ const PHASES: { id: ProjectPhase; label: string }[] = [
 ];
 
 export function CopilotTab({ project }: { project: Project }) {
-  const [messages, setMessages] = useState<Message[]>(COPILOT_INITIAL_MESSAGES);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const [messages, setMessages] = useState<ChatMessage[]>(COPILOT_INITIAL_MESSAGES);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const currentPhase: ProjectPhase = "execucao";
 
@@ -40,33 +43,62 @@ export function CopilotTab({ project }: { project: Project }) {
     [project]
   );
 
-  function send(text: string) {
-    if (!text.trim()) return;
-    const userMsg: Message = { role: "user", content: text };
-    setMessages((m) => [...m, userMsg]);
+  const projectContext = {
+    name: project.name,
+    client: project.client,
+    macroCategory: project.macroCategory,
+    projectType: project.projectType,
+    progress: project.progress,
+    complexity: project.complexity,
+    manager: project.manager,
+  };
+
+  async function send(text: string) {
+    if (!text.trim() || loading) return;
+    const userMsg: ChatMessage = { role: "user", content: text };
+    const history = [...messages, userMsg];
+    setMessages(history);
     setInput("");
     setLoading(true);
-    setTimeout(() => {
-      const matched = Object.keys(COPILOT_QUICK_REPLIES).find((k) => text.includes(k));
-      const reply = matched ? COPILOT_QUICK_REPLIES[matched] : COPILOT_QUICK_REPLIES.default;
+    setError("");
+
+    try {
+      const reply = await sendChatMessage(
+        history,
+        { agentType: "copilot", projectContext }
+      );
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao contactar o co-piloto.");
+    } finally {
       setLoading(false);
-    }, 1200);
+    }
   }
 
-  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
-    setMessages((m) => [
-      ...m,
-      { role: "user", content: `Upload de transcrição: **${file.name}**`, attachment: file.name },
-    ]);
+
+    const text = await file.text().catch(() => "");
+    const content = text
+      ? `Transcrição de reunião — **${file.name}**:\n\n${text.slice(0, 8000)}`
+      : `Upload de transcrição: **${file.name}** (conteúdo não legível)`;
+
+    const userMsg: ChatMessage = { role: "user", content };
+    const history = [...messages, userMsg];
+    setMessages(history);
     setLoading(true);
-    setTimeout(() => {
-      setMessages((m) => [...m, { role: "assistant", content: COPILOT_TRANSCRIPT_RESPONSE }]);
+    setError("");
+
+    try {
+      const reply = await sendChatMessage(history, { agentType: "copilot", projectContext });
+      setMessages((m) => [...m, { role: "assistant", content: reply }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao processar transcrição.");
+    } finally {
       setLoading(false);
-    }, 2000);
-    if (fileRef.current) fileRef.current.value = "";
+      if (fileRef.current) fileRef.current.value = "";
+    }
   }
 
   return (
@@ -94,9 +126,15 @@ export function CopilotTab({ project }: { project: Project }) {
                 <div className="text-xs text-text-faint mb-1">Co-piloto</div>
                 <div className="rounded-lg border border-border bg-surface px-4 py-3 flex items-center gap-2 text-sm text-text-muted">
                   <Loader2 size={14} className="animate-spin text-brand-primary" />
-                  <span className="animate-pulse-soft">Analisando reunião...</span>
+                  <span className="animate-pulse-soft">Pensando...</span>
                 </div>
               </div>
+            </div>
+          )}
+          {error && (
+            <div className="flex items-center gap-2 rounded-lg bg-accent-red/10 border border-accent-red/20 px-4 py-3 text-xs text-accent-red">
+              <AlertCircle size={13} className="shrink-0" />
+              {error}
             </div>
           )}
         </div>
@@ -209,7 +247,7 @@ function MessageBubble({ message }: { message: Message }) {
   return (
     <div className={cn("flex items-start gap-3", isUser && "flex-row-reverse")}>
       {isUser ? (
-        <Avatar initials={CURRENT_USER.initials} size="sm" tone="brand" />
+        <Avatar initials={useAuthStore.getState().currentUser?.initials ?? "??"} size="sm" tone="brand" />
       ) : (
         <div className="h-7 w-7 rounded-full bg-brand-primary/10 text-brand-primary flex items-center justify-center shrink-0">
           <Sparkles size={14} />

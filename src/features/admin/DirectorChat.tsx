@@ -1,11 +1,12 @@
 import { useRef, useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { Send, Sparkles, Loader2, Crown } from "lucide-react";
+import { Send, Sparkles, Loader2, Crown, AlertCircle } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
-import { DIRECTOR_REPLIES, DIRECTOR_SUGGESTIONS } from "@/mocks/admin";
+import { DIRECTOR_SUGGESTIONS } from "@/mocks/admin";
+import { sendChatMessage, type ChatMessage } from "@/lib/chat";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -22,26 +23,37 @@ const INITIAL: Message[] = [
 ];
 
 export function DirectorChat() {
-  const [messages, setMessages] = useState<Message[]>(INITIAL);
+  const [messages, setMessages] = useState<ChatMessage[]>(INITIAL);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  function send(text: string) {
-    if (!text.trim()) return;
-    setMessages((m) => [...m, { role: "user", content: text }]);
+  async function send(text: string) {
+    if (!text.trim() || loading) return;
+    const userMsg: ChatMessage = { role: "user", content: text };
+    const history = [...messages, userMsg];
+    setMessages(history);
     setInput("");
     setLoading(true);
-    setTimeout(() => {
-      const matched = Object.keys(DIRECTOR_REPLIES).find((k) => text.includes(k));
-      const reply = matched ? DIRECTOR_REPLIES[matched] : DIRECTOR_REPLIES.default;
+    setError("");
+
+    try {
+      // Send only the actual conversation (skip the initial assistant greeting for efficiency)
+      const reply = await sendChatMessage(
+        history.filter((m) => !(m.role === "assistant" && m === INITIAL[0])),
+        { agentType: "director" }
+      );
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao contactar o co-piloto.");
+    } finally {
       setLoading(false);
-    }, 1400);
+    }
   }
 
   return (
@@ -74,6 +86,12 @@ export function DirectorChat() {
                 <span className="animate-pulse-soft">Cruzando dados do portfólio...</span>
               </div>
             </div>
+          </div>
+        )}
+        {error && (
+          <div className="flex items-center gap-2 rounded-lg bg-accent-red/10 border border-accent-red/20 px-4 py-3 text-xs text-accent-red">
+            <AlertCircle size={13} className="shrink-0" />
+            {error}
           </div>
         )}
         <div ref={endRef} />
