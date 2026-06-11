@@ -50,7 +50,15 @@ export const useAuthStore = create<AuthState>()((set) => ({
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session?.user) {
         const profile = await fetchProfile(session.user.id);
-        set({ currentUser: profile, isAuthenticated: !!profile, loading: false, initialized: true });
+        // Authenticate even if profile table doesn't exist yet — use auth metadata as fallback
+        const user: User = profile ?? {
+          id: session.user.id,
+          name: session.user.user_metadata?.name ?? session.user.email ?? "Usuário",
+          initials: session.user.user_metadata?.initials ?? "??",
+          email: session.user.email,
+          systemRole: "admin",
+        };
+        set({ currentUser: user, isAuthenticated: true, loading: false, initialized: true });
       } else {
         set({ loading: false, initialized: true });
       }
@@ -60,7 +68,14 @@ export const useAuthStore = create<AuthState>()((set) => ({
     supabase.auth.onAuthStateChange(async (event, session) => {
       if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && session?.user) {
         const profile = await fetchProfile(session.user.id);
-        set({ currentUser: profile, isAuthenticated: !!profile });
+        const user: User = profile ?? {
+          id: session.user.id,
+          name: session.user.user_metadata?.name ?? session.user.email ?? "Usuário",
+          initials: session.user.user_metadata?.initials ?? "??",
+          email: session.user.email,
+          systemRole: "admin",
+        };
+        set({ currentUser: user, isAuthenticated: true });
       } else if (event === "SIGNED_OUT") {
         set({ currentUser: null, isAuthenticated: false });
       }
@@ -70,15 +85,24 @@ export const useAuthStore = create<AuthState>()((set) => ({
   login: async (email, password) => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      const msg =
-        error.message === "Invalid login credentials"
-          ? "E-mail ou senha incorretos."
-          : error.message;
+      const errorMap: Record<string, string> = {
+        "Invalid login credentials": "E-mail ou senha incorretos.",
+        "Email not confirmed": "E-mail ainda não confirmado. Verifique sua caixa de entrada ou desative a confirmação no Supabase.",
+        "Too many requests": "Muitas tentativas. Aguarde alguns minutos.",
+      };
+      const msg = errorMap[error.message] ?? error.message;
       return { ok: false, error: msg };
     }
     if (data.user) {
       const profile = await fetchProfile(data.user.id);
-      set({ currentUser: profile, isAuthenticated: !!profile });
+      const user: User = profile ?? {
+        id: data.user.id,
+        name: data.user.user_metadata?.name ?? data.user.email ?? "Usuário",
+        initials: data.user.user_metadata?.initials ?? "??",
+        email: data.user.email,
+        systemRole: "admin",
+      };
+      set({ currentUser: user, isAuthenticated: true });
     }
     return { ok: true };
   },
