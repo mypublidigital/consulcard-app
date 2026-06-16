@@ -26,7 +26,10 @@ export async function sendChatMessage(
     },
   });
 
-  if (error) throw new Error(error.message ?? "Erro ao chamar o co-piloto.");
+  if (error) {
+    const detail = data?.error ?? error.message ?? "Erro ao chamar o co-piloto.";
+    throw new Error(detail);
+  }
   if (data?.error) throw new Error(data.error);
   if (!data?.content) throw new Error("Resposta vazia do co-piloto.");
 
