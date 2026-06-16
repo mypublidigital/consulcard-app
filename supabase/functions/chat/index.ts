@@ -86,7 +86,7 @@ serve(async (req) => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-3-5-haiku-20241022",   // rápido e barato para chat
+        model: "claude-haiku-4-5",   // rápido e barato para chat
         max_tokens: 1500,
         system: systemPrompt,
         messages,
@@ -97,7 +97,7 @@ serve(async (req) => {
       const errBody = await anthropicRes.text();
       console.error("Anthropic error:", anthropicRes.status, errBody);
       return new Response(
-        JSON.stringify({ error: `Anthropic API error: ${anthropicRes.status}` }),
+        JSON.stringify({ error: `Anthropic API error ${anthropicRes.status}: ${errBody}` }),
         { status: anthropicRes.status, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
