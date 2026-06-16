@@ -188,7 +188,6 @@ export function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [captchaDone, setCaptchaDone] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
@@ -213,16 +212,10 @@ export function LoginPage() {
     setFieldErrors(fe);
     if (fe.email || fe.password) return;
 
-    if (!captchaDone) {
-      setError("Por favor, confirme que você não é um robô.");
-      return;
-    }
-
     setLoading(true);
     const result = await login(email, password);
     if (!result.ok) {
       setError(result.error ?? "Erro ao autenticar.");
-      setCaptchaDone(false); // reset captcha on failure
     }
     // On success, App.tsx will re-render with the authenticated layout
     setLoading(false);
@@ -334,9 +327,6 @@ export function LoginPage() {
                 </p>
               )}
             </div>
-
-            {/* Captcha */}
-            <Captcha checked={captchaDone} onChange={setCaptchaDone} />
 
             {/* Submit */}
             <button
