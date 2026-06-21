@@ -2,19 +2,6 @@ import { create } from "zustand";
 import { supabase } from "@/lib/supabase";
 import type { User, UserRole } from "@/types";
 
-function generatePassword(name: string): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#";
-  const initials = name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
-  let rand = "";
-  for (let i = 0; i < 8; i++) rand += chars[Math.floor(Math.random() * chars.length)];
-  return `Cc@${rand}${initials}`;
-}
-
 function deriveInitials(name: string): string {
   const parts = name.trim().split(" ").filter(Boolean);
   if (parts.length === 0) return "??";
@@ -52,7 +39,7 @@ export interface UsersState {
     role: string;
   }) => Promise<User>;
   deleteUser: (id: string) => Promise<void>;
-  generateNewPassword: (id: string) => string;
+  generateNewPassword: (id: string) => Promise<string>;
   updateUser: (id: string, data: Partial<User>) => Promise<void>;
 }
 
@@ -76,76 +63,49 @@ export const useUsersStore = create<UsersState>((set, get) => ({
   },
 
   addUser: async (formData) => {
-    // Step 1: Create auth user (sends invite email — disable email confirmation in Supabase Auth settings)
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email: formData.email,
-      password: generatePassword(formData.name),
-      options: {
-        data: {
-          name: formData.name,
-          initials: deriveInitials(formData.name),
-        },
-      },
+    // User creation runs server-side in the `admin-users` Edge Function using the
+    // service_role key. This is required so the admin's own session is NOT replaced
+    // (client-side signUp would log the admin out and in as the new user).
+    const { data, error } = await supabase.functions.invoke("admin-users", {
+      body: { action: "create", ...formData },
     });
 
-    if (authError || !authData.user) {
-      throw new Error(authError?.message ?? "Erro ao criar usuário.");
+    if (error) {
+      // On non-2xx the response body is in error.context, not data.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const ctx = (error as any)?.context;
+      let detail = error.message ?? "Erro ao criar usuário.";
+      if (ctx?.json) {
+        try { const b = await ctx.json(); if (b?.error) detail = String(b.error); } catch { /* ignore */ }
+      }
+      throw new Error(detail);
     }
+    if (data?.error) throw new Error(data.error);
 
-    const pwd = generatePassword(formData.name);
-
-    // Step 2: Update profile with full data
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: profileError } = await (supabase.from("profiles") as any)
-      .update({
-        name: formData.name,
-        initials: deriveInitials(formData.name),
-        role: formData.role,
-        system_role: formData.systemRole,
-        whatsapp: formData.whatsapp || null,
-        linkedin: formData.linkedin || null,
-        temp_password: pwd,
-      })
-      .eq("id", authData.user.id);
-
-    if (profileError) {
-      console.error("Profile update error:", profileError);
-    }
-
-    const newUser: User = {
-      id: authData.user.id,
-      name: formData.name,
-      initials: deriveInitials(formData.name),
-      role: formData.role,
-      systemRole: formData.systemRole,
-      email: formData.email,
-      whatsapp: formData.whatsapp || undefined,
-      linkedin: formData.linkedin || undefined,
-      active: true,
-      createdAt: new Date().toISOString().split("T")[0],
-      password: pwd,
-    };
-
+    const newUser = data.user as User;
     set((s) => ({ users: [...s.users, newUser] }));
     return newUser;
   },
 
   deleteUser: async (id) => {
-    // Soft delete — set active = false
-    // Hard delete requires service_role key (admin API)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("profiles") as any).update({ active: false }).eq("id", id);
+    const { data, error } = await supabase.functions.invoke("admin-users", {
+      body: { action: "delete", id },
+    });
+    if (error || data?.error) {
+      throw new Error(data?.error ?? error?.message ?? "Erro ao excluir usuário.");
+    }
     set((s) => ({ users: s.users.filter((u) => u.id !== id) }));
   },
 
-  generateNewPassword: (id) => {
+  generateNewPassword: async (id) => {
     const user = get().users.find((u) => u.id === id);
-    const pwd = generatePassword(user?.name ?? "User");
-
-    // Store temp password in profile (admin readable)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase.from("profiles") as any).update({ temp_password: pwd }).eq("id", id).then();
-
+    const { data, error } = await supabase.functions.invoke("admin-users", {
+      body: { action: "resetPassword", id, name: user?.name ?? "User" },
+    });
+    if (error || data?.error) {
+      throw new Error(data?.error ?? error?.message ?? "Erro ao gerar nova senha.");
+    }
+    const pwd = data.password as string;
     set((s) => ({
       users: s.users.map((u) => (u.id === id ? { ...u, password: pwd } : u)),
     }));
@@ -153,17 +113,21 @@ export const useUsersStore = create<UsersState>((set, get) => ({
   },
 
   updateUser: async (id, data) => {
-    const update: Record<string, unknown> = {};
-    if (data.name)        { update.name = data.name; update.initials = deriveInitials(data.name); }
-    if (data.role)          update.role = data.role;
-    if (data.systemRole)    update.system_role = data.systemRole;
-    if (data.whatsapp !== undefined)  update.whatsapp = data.whatsapp || null;
-    if (data.linkedin !== undefined)  update.linkedin = data.linkedin || null;
-    if (data.active !== undefined)    update.active = data.active;
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (supabase.from("profiles") as any).update(update).eq("id", id);
-    if (error) throw new Error(error.message);
+    const { error: fnError, data: fnData } = await supabase.functions.invoke("admin-users", {
+      body: {
+        action: "update",
+        id,
+        name: data.name,
+        email: data.email,
+        whatsapp: data.whatsapp,
+        linkedin: data.linkedin,
+        systemRole: data.systemRole,
+        role: data.role,
+      },
+    });
+    if (fnError || fnData?.error) {
+      throw new Error(fnData?.error ?? fnError?.message ?? "Erro ao atualizar usuário.");
+    }
 
     set((s) => ({
       users: s.users.map((u) =>

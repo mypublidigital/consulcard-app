@@ -75,11 +75,19 @@ function PasswordCell({ userId, initial }: { userId: string; initial?: string })
   const [visible, setVisible] = useState(false);
   const [copied, setCopied] = useState(false);
   const [generated, setGenerated] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
 
-  function handleGenerate() {
-    const newPwd = generateNewPassword(userId);
-    setGenerated(newPwd);
-    setVisible(true);
+  async function handleGenerate() {
+    setGenerating(true);
+    try {
+      const newPwd = await generateNewPassword(userId);
+      setGenerated(newPwd);
+      setVisible(true);
+    } catch (err) {
+      console.error("Erro ao gerar senha:", err);
+    } finally {
+      setGenerating(false);
+    }
   }
 
   function handleCopy() {
@@ -111,10 +119,11 @@ function PasswordCell({ userId, initial }: { userId: string; initial?: string })
       </button>
       <button
         onClick={handleGenerate}
-        className="text-text-faint hover:text-brand-primary shrink-0"
+        disabled={generating}
+        className="text-text-faint hover:text-brand-primary shrink-0 disabled:opacity-50"
         title="Gerar nova senha"
       >
-        <RefreshCw size={12} />
+        <RefreshCw size={12} className={cn(generating && "animate-spin")} />
       </button>
     </div>
   );
@@ -407,23 +416,33 @@ function EditUserModal({ user, onClose }: EditUserModalProps) {
     return e;
   }
 
-  function handleSave() {
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
 
-    updateUser(user.id, {
-      name: form.name.trim(),
-      initials: form.name.trim().split(" ").filter(Boolean).reduce(
-        (acc, w, i, arr) => i === 0 || i === arr.length - 1 ? acc + w[0].toUpperCase() : acc, ""
-      ).slice(0, 2) || user.initials,
-      email: form.email.trim(),
-      whatsapp: form.whatsapp.trim(),
-      linkedin: form.linkedin.trim(),
-      systemRole: form.systemRole,
-      role: ROLE_LABEL_MAP[form.systemRole],
-    });
-    setSaved(true);
-    setTimeout(onClose, 900);
+    setSaving(true);
+    try {
+      await updateUser(user.id, {
+        name: form.name.trim(),
+        initials: form.name.trim().split(" ").filter(Boolean).reduce(
+          (acc, w, i, arr) => i === 0 || i === arr.length - 1 ? acc + w[0].toUpperCase() : acc, ""
+        ).slice(0, 2) || user.initials,
+        email: form.email.trim(),
+        whatsapp: form.whatsapp.trim(),
+        linkedin: form.linkedin.trim(),
+        systemRole: form.systemRole,
+        role: ROLE_LABEL_MAP[form.systemRole],
+      });
+      setSaved(true);
+      setTimeout(onClose, 900);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro ao salvar.";
+      setErrors((prev) => ({ ...prev, email: msg }));
+    } finally {
+      setSaving(false);
+    }
   }
 
   const selectedRole = ROLE_OPTIONS.find((r) => r.value === form.systemRole)!;
@@ -574,10 +593,11 @@ function EditUserModal({ user, onClose }: EditUserModalProps) {
             </Button>
             <Button
               onClick={handleSave}
+              disabled={saving}
               className="flex-1"
               leftIcon={saved ? <Check size={14} /> : <Save size={14} />}
             >
-              {saved ? "Salvo!" : "Salvar alterações"}
+              {saved ? "Salvo!" : saving ? "Salvando..." : "Salvar alterações"}
             </Button>
           </div>
         </div>
