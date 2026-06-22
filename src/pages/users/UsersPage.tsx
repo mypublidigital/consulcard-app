@@ -203,9 +203,9 @@ function AddUserModal({ onClose }: AddUserModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-border overflow-hidden">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-border">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border rounded-t-xl">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-md bg-brand-primary/10 text-brand-primary flex items-center justify-center">
               <UserPlus size={16} />
@@ -449,9 +449,9 @@ function EditUserModal({ user, onClose }: EditUserModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-border overflow-hidden">
+      <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-border">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border rounded-t-xl">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-md bg-brand-primary/10 text-brand-primary flex items-center justify-center">
               <Pencil size={15} />
