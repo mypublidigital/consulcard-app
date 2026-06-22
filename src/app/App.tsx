@@ -12,6 +12,7 @@ import { AdminPage } from "@/pages/admin/AdminPage";
 import { UsersPage } from "@/pages/users/UsersPage";
 import { LoginPage } from "@/pages/auth/LoginPage";
 import { useAuthStore } from "@/store/auth-store";
+import { useProjectsStore } from "@/store/projects-store";
 
 // Full-screen loading spinner shown while Supabase restores the session
 function LoadingScreen() {
@@ -30,11 +31,18 @@ function LoadingScreen() {
 export default function App() {
   const location = useLocation();
   const { isAuthenticated, initialized, loading, initialize } = useAuthStore();
+  const fetchProjects = useProjectsStore((s) => s.fetchProjects);
+  const projectsInitialized = useProjectsStore((s) => s.initialized);
 
   // Initialize Supabase auth listener once on mount
   useEffect(() => {
     initialize();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Once authenticated, load projects from Supabase
+  useEffect(() => {
+    if (isAuthenticated && !projectsInitialized) fetchProjects();
+  }, [isAuthenticated, projectsInitialized, fetchProjects]);
 
   // Client portal is always public
   if (location.pathname.startsWith("/client/")) {
