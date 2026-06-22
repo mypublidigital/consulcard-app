@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -20,7 +20,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { useProjectsStore } from "@/store/projects-store";
 import type { Activity, ActivityStatusValue } from "@/types";
 import { cn } from "@/lib/utils";
-import { USERS } from "@/mocks/users";
+import { useUsersStore } from "@/store/users-store";
 
 const COLUMNS: { id: ActivityStatusValue; label: string; tone: string; dot: string }[] = [
   { id: "todo", label: "A fazer", tone: "bg-[#F0EDE6] text-text-muted", dot: "bg-text-faint" },
@@ -274,12 +274,21 @@ function AddActivityForm({
   onSubmit: (a: Activity) => void;
   onCancel: () => void;
 }) {
+  const users = useUsersStore((s) => s.users);
+  const fetchUsers = useUsersStore((s) => s.fetchUsers);
+  useEffect(() => { if (users.length === 0) fetchUsers(); }, [users.length, fetchUsers]);
+  const activeUsers = users.filter((u) => u.active !== false);
+
   const [label, setLabel] = useState("");
   const [description, setDescription] = useState("");
   const [complexity, setComplexity] = useState<1 | 2 | 3 | 4 | 5>(3);
   const [llm, setLLM] = useState<"high" | "medium" | "low">("medium");
-  const [assigneeId, setAssigneeId] = useState(USERS[0].id);
+  const [assigneeId, setAssigneeId] = useState("");
   const [dueDate, setDueDate] = useState("");
+
+  useEffect(() => {
+    if (!assigneeId && activeUsers.length > 0) setAssigneeId(activeUsers[0].id);
+  }, [activeUsers, assigneeId]);
 
   return (
     <div className="space-y-4">
@@ -306,7 +315,8 @@ function AddActivityForm({
         </Field>
         <Field label="Responsável">
           <Select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
-            {USERS.map((u) => (
+            {activeUsers.length === 0 && <option value="">Nenhum usuário cadastrado</option>}
+            {activeUsers.map((u) => (
               <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </Select>
@@ -330,7 +340,7 @@ function AddActivityForm({
               llmIndexMax: llm === "high" ? 55 : llm === "medium" ? 35 : 20,
               phase: "execucao",
               status: "todo",
-              assignee: USERS.find((u) => u.id === assigneeId),
+              assignee: activeUsers.find((u) => u.id === assigneeId),
               dueDate: dueDate || undefined,
             });
           }}

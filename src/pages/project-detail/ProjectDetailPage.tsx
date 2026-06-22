@@ -29,6 +29,7 @@ import { CopilotTab } from "@/features/ai-copilot/CopilotTab";
 import { PendenciesTab } from "@/features/pendencies/PendenciesTab";
 import { DocumentsTab } from "@/features/documents/DocumentsTab";
 import { StatusReportTab } from "@/features/status-report/StatusReportTab";
+import { EditProjectModal } from "@/features/project-edit/EditProjectModal";
 
 type TabId = "activities" | "copilot" | "pendencies" | "documents" | "report";
 
@@ -46,6 +47,7 @@ export function ProjectDetailPage() {
   const activities = useProjectsStore((s) => (id ? s.activitiesByProject[id] ?? [] : []));
   const setStatus = useProjectsStore((s) => s.setProjectStatus);
   const [tab, setTab] = useState<TabId>("activities");
+  const [showEdit, setShowEdit] = useState(false);
 
   if (!project) {
     return (
@@ -120,7 +122,12 @@ export function ProjectDetailPage() {
                 Ver portal
               </Button>
             </Link>
-            <button className="h-9 w-9 rounded-md hover:bg-[#F0EDE6] flex items-center justify-center text-text-muted" aria-label="Mais opções">
+            <button
+              onClick={() => setShowEdit(true)}
+              className="h-9 w-9 rounded-md hover:bg-[#F0EDE6] flex items-center justify-center text-text-muted"
+              aria-label="Editar projeto"
+              title="Editar projeto"
+            >
               <MoreHorizontal size={16} />
             </button>
           </div>
@@ -194,6 +201,8 @@ export function ProjectDetailPage() {
         {tab === "documents" && <DocumentsTab projectId={project.id} />}
         {tab === "report" && <StatusReportTab project={project} />}
       </div>
+
+      {showEdit && <EditProjectModal project={project} onClose={() => setShowEdit(false)} />}
     </PageWrapper>
   );
 }

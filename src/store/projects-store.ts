@@ -16,6 +16,7 @@ interface ProjectsState {
   resolvePendency: (id: string) => void;
   updatePendency: (id: string, patch: Partial<Pendency>) => void;
   setProjectStatus: (projectId: string, status: Project["status"]) => void;
+  updateProject: (projectId: string, patch: Partial<Project>) => void;
 }
 
 function seedActivities(): Record<string, Activity[]> {
@@ -87,5 +88,12 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
   setProjectStatus: (projectId, status) =>
     set((s) => ({
       projects: s.projects.map((p) => (p.id === projectId ? { ...p, status } : p)),
+    })),
+
+  updateProject: (projectId, patch) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId ? { ...p, ...patch, lastUpdate: new Date().toISOString().slice(0, 10) } : p
+      ),
     })),
 }));
