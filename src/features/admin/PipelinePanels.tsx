@@ -1,12 +1,23 @@
+import { useEffect } from "react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Avatar } from "@/components/ui/Avatar";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Badge } from "@/components/ui/Badge";
-import { USERS } from "@/mocks/users";
 import { useProjectsStore } from "@/store/projects-store";
-import { CONSULTANT_METRICS, MANAGER_METRICS } from "@/mocks/admin";
+import { useUsersStore } from "@/store/users-store";
+import { CONSULTANT_METRICS, MANAGER_METRICS, type ConsultantMetrics, type ManagerMetrics } from "@/mocks/admin";
 import { findMacro, findProjectType, MACRO_COLOR_CLASSES } from "@/mocks/project-types";
 import { Link } from "react-router-dom";
+
+const EMPTY_MANAGER_METRICS: Omit<ManagerMetrics, "userId"> = {
+  projectsManaged: 0, portfolioRevenueR: 0, avgProgress: 0,
+  delayedProjects: 0, copilotAdoption: 0, npsClient: 0,
+};
+const EMPTY_CONSULTANT_METRICS: Omit<ConsultantMetrics, "userId"> = {
+  projectsActive: 0, activitiesAssigned: 0, activitiesDone: 0,
+  avgCycleTimeDays: 0, copilotMessages: 0, copilotArtifacts: 0,
+  qualityScore: 0, utilizationPct: 0,
+};
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -14,6 +25,13 @@ function formatBRL(v: number) {
 
 export function PipelineByManager() {
   const projects = useProjectsStore((s) => s.projects);
+  const users = useUsersStore((s) => s.users);
+  const fetchUsers = useUsersStore((s) => s.fetchUsers);
+  useEffect(() => { if (users.length === 0) fetchUsers(); }, [users.length, fetchUsers]);
+
+  const managers = users.filter((u) =>
+    u.active !== false && (u.systemRole === "gerente" || u.systemRole === "admin" || u.systemRole === "diretor")
+  );
 
   return (
     <Card>
@@ -22,12 +40,15 @@ export function PipelineByManager() {
           <CardTitle>Pipeline por gerente</CardTitle>
           <p className="text-[11px] text-text-faint mt-0.5">workflow consolidado por carteira</p>
         </div>
-        <Badge tone="blue" size="sm">{MANAGER_METRICS.length} gerentes</Badge>
+        <Badge tone="blue" size="sm">{managers.length} gerentes</Badge>
       </CardHeader>
       <div className="divide-y divide-border">
-        {MANAGER_METRICS.map((m) => {
-          const user = USERS.find((u) => u.id === m.userId)!;
-          const managerProjects = projects.filter((p) => p.manager.id === m.userId);
+        {managers.length === 0 && (
+          <div className="px-5 py-6 text-xs text-text-faint text-center">Nenhum gerente cadastrado.</div>
+        )}
+        {managers.map((user) => {
+          const m = { userId: user.id, ...EMPTY_MANAGER_METRICS, ...(MANAGER_METRICS.find((x) => x.userId === user.id) ?? {}) };
+          const managerProjects = projects.filter((p) => p.manager.id === user.id);
           return (
             <div key={m.userId} className="p-5">
               <div className="flex items-start justify-between mb-4">
@@ -99,6 +120,11 @@ export function PipelineByManager() {
 export function PipelineByConsultant() {
   const projects = useProjectsStore((s) => s.projects);
   const activitiesByProject = useProjectsStore((s) => s.activitiesByProject);
+  const users = useUsersStore((s) => s.users);
+  const fetchUsers = useUsersStore((s) => s.fetchUsers);
+  useEffect(() => { if (users.length === 0) fetchUsers(); }, [users.length, fetchUsers]);
+
+  const consultants = users.filter((u) => u.active !== false && u.systemRole === "consultor");
 
   return (
     <Card>
@@ -107,7 +133,7 @@ export function PipelineByConsultant() {
           <CardTitle>Consultores — carga e desempenho</CardTitle>
           <p className="text-[11px] text-text-faint mt-0.5">cycle time, qualidade e uso do co-piloto</p>
         </div>
-        <Badge tone="blue" size="sm">{CONSULTANT_METRICS.length} consultores</Badge>
+        <Badge tone="blue" size="sm">{consultants.length} consultores</Badge>
       </CardHeader>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -123,16 +149,19 @@ export function PipelineByConsultant() {
             </tr>
           </thead>
           <tbody>
-            {CONSULTANT_METRICS.map((c) => {
-              const user = USERS.find((u) => u.id === c.userId)!;
-              const consultantProjects = projects.filter((p) => p.consultants.some((x) => x.id === c.userId));
+            {consultants.length === 0 && (
+              <tr><td colSpan={7} className="px-5 py-6 text-xs text-text-faint text-center">Nenhum consultor cadastrado.</td></tr>
+            )}
+            {consultants.map((user) => {
+              const c = { userId: user.id, ...EMPTY_CONSULTANT_METRICS, ...(CONSULTANT_METRICS.find((x) => x.userId === user.id) ?? {}) };
+              const consultantProjects = projects.filter((p) => p.consultants.some((x) => x.id === user.id));
               const totalAssigned = consultantProjects.reduce((acc, p) => {
                 const acts = activitiesByProject[p.id] ?? [];
-                return acc + acts.filter((a) => a.assignee?.id === c.userId).length;
+                return acc + acts.filter((a) => a.assignee?.id === user.id).length;
               }, 0);
               const totalDone = consultantProjects.reduce((acc, p) => {
                 const acts = activitiesByProject[p.id] ?? [];
-                return acc + acts.filter((a) => a.assignee?.id === c.userId && a.status === "done").length;
+                return acc + acts.filter((a) => a.assignee?.id === user.id && a.status === "done").length;
               }, 0);
               const assigned = Math.max(totalAssigned, c.activitiesAssigned);
               const done = Math.max(totalDone, c.activitiesDone);

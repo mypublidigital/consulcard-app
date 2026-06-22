@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, ArrowRight, Check, Sparkles, X } from "lucide-react";
 import { PageWrapper, PageHeader } from "@/components/layout/PageWrapper";
@@ -8,12 +8,12 @@ import { Field, Input, Select } from "@/components/ui/Input";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { PROJECT_TYPES, MACRO_COLOR_CLASSES } from "@/mocks/project-types";
-import { USERS } from "@/mocks/users";
 import { getActivitiesForType } from "@/mocks/activities";
 import { useProjectsStore } from "@/store/projects-store";
+import { useUsersStore } from "@/store/users-store";
 import { initials, cn } from "@/lib/utils";
 import { ComplexityBadge, LLMImpact } from "@/components/ui/StatusPills";
-import type { Project } from "@/types";
+import type { Project, User } from "@/types";
 
 const SIZES = [
   { id: "P1", label: "P1", description: "Pequeno · até 4 semanas" },
@@ -41,7 +41,7 @@ const initialForm: FormState = {
   name: "",
   client: "",
   clientInitials: "",
-  managerId: USERS[0].id,
+  managerId: "",
   consultantIds: [],
   startDate: "",
   targetEndDate: "",
@@ -58,6 +58,27 @@ export function NewProjectPage() {
   const [tagInput, setTagInput] = useState("");
   const navigate = useNavigate();
   const addProject = useProjectsStore((s) => s.addProject);
+  const users = useUsersStore((s) => s.users);
+  const fetchUsers = useUsersStore((s) => s.fetchUsers);
+
+  useEffect(() => { if (users.length === 0) fetchUsers(); }, [users.length, fetchUsers]);
+
+  // Managers can be admin/diretor/gerente; consultants are everyone (admin/diretor can also play that role).
+  const managerOptions = useMemo(
+    () => users.filter((u) => u.active !== false && (u.systemRole === "admin" || u.systemRole === "diretor" || u.systemRole === "gerente")),
+    [users]
+  );
+  const consultantOptions = useMemo(
+    () => users.filter((u) => u.active !== false),
+    [users]
+  );
+
+  // Default the manager once users load.
+  useEffect(() => {
+    if (!form.managerId && managerOptions.length > 0) {
+      setForm((f) => ({ ...f, managerId: managerOptions[0].id }));
+    }
+  }, [managerOptions, form.managerId]);
 
   const macro = PROJECT_TYPES.find((m) => m.id === form.macroCategory);
   const projectType = macro?.types.find((t) => t.id === form.projectType);
@@ -103,8 +124,8 @@ export function NewProjectPage() {
 
   function submit() {
     if (!form.size || !macro || !projectType) return;
-    const manager = USERS.find((u) => u.id === form.managerId)!;
-    const consultants = USERS.filter((u) => form.consultantIds.includes(u.id));
+    const manager = users.find((u) => u.id === form.managerId)!;
+    const consultants = users.filter((u) => form.consultantIds.includes(u.id));
     const id = "proj-" + Math.random().toString(36).slice(2, 7);
     const project: Project = {
       id,
@@ -142,7 +163,7 @@ export function NewProjectPage() {
 
       <Card className="mt-4">
         <CardBody>
-          {step === 1 && <Step1 form={form} update={update} errors={errors} />}
+          {step === 1 && <Step1 form={form} update={update} errors={errors} managers={managerOptions} consultants={consultantOptions} />}
           {step === 2 && (
             <Step2
               form={form}
@@ -155,7 +176,7 @@ export function NewProjectPage() {
             />
           )}
           {step === 3 && (
-            <Step3 form={form} previewActivities={previewActivities} avgLLM={avgLLM} />
+            <Step3 form={form} previewActivities={previewActivities} avgLLM={avgLLM} users={users} />
           )}
 
           <div className="flex items-center justify-between mt-8 pt-5 border-t border-border">
@@ -220,10 +241,14 @@ function Step1({
   form,
   update,
   errors,
+  managers,
+  consultants,
 }: {
   form: FormState;
   update: <K extends keyof FormState>(k: K, v: FormState[K]) => void;
   errors: Partial<Record<keyof FormState, string>>;
+  managers: User[];
+  consultants: User[];
 }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -250,9 +275,10 @@ function Step1({
       </Field>
       <Field label="Gerente de projeto" required error={errors.managerId}>
         <Select value={form.managerId} onChange={(e) => update("managerId", e.target.value)}>
-          {USERS.map((u) => (
+          {managers.length === 0 && <option value="">Nenhum gerente cadastrado</option>}
+          {managers.map((u) => (
             <option key={u.id} value={u.id}>
-              {u.name} · {u.role}
+              {u.name}{u.role ? ` · ${u.role}` : ""}
             </option>
           ))}
         </Select>
@@ -269,7 +295,7 @@ function Step1({
           }
           className="min-h-[90px] rounded-md border border-border bg-white px-2 py-1.5 text-sm"
         >
-          {USERS.map((u) => (
+          {consultants.map((u) => (
             <option key={u.id} value={u.id}>
               {u.name}
             </option>
@@ -503,15 +529,17 @@ function Step3({
   form,
   previewActivities,
   avgLLM,
+  users,
 }: {
   form: FormState;
   previewActivities: ReturnType<typeof getActivitiesForType>;
   avgLLM: number;
+  users: User[];
 }) {
   const macro = PROJECT_TYPES.find((m) => m.id === form.macroCategory);
   const projectType = macro?.types.find((t) => t.id === form.projectType);
-  const manager = USERS.find((u) => u.id === form.managerId);
-  const consultants = USERS.filter((u) => form.consultantIds.includes(u.id));
+  const manager = users.find((u) => u.id === form.managerId);
+  const consultants = users.filter((u) => form.consultantIds.includes(u.id));
 
   return (
     <div className="space-y-6">
