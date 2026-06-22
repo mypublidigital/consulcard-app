@@ -124,6 +124,22 @@ alter table public.activities        enable row level security;
 alter table public.pendencies        enable row level security;
 alter table public.prompts           enable row level security;
 
+-- Helper: checks the caller's role WITHOUT triggering RLS recursion.
+-- SECURITY DEFINER runs as the table owner (postgres), which bypasses RLS,
+-- so reading profiles here does not re-trigger the profiles policies.
+create or replace function public.is_admin_or_diretor()
+returns boolean
+language sql
+security definer
+stable
+set search_path = public
+as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and system_role in ('admin','diretor')
+  );
+$$;
+
 -- Profiles: authenticated users can read all; update only own
 create policy "profiles: read all" on public.profiles
   for select to authenticated using (true);
@@ -131,13 +147,13 @@ create policy "profiles: read all" on public.profiles
 create policy "profiles: update own" on public.profiles
   for update to authenticated using (auth.uid() = id);
 
--- Admins/diretores can insert/update/delete any profile
-create policy "profiles: admin full" on public.profiles
+-- Admins/diretores can insert/update/delete any profile.
+-- NOTE: must use the SECURITY DEFINER helper — a self-referential subquery
+-- on profiles here causes "infinite recursion detected in policy".
+create policy "profiles: admin manage" on public.profiles
   for all to authenticated
-  using (
-    (select system_role from public.profiles where id = auth.uid())
-    in ('admin','diretor')
-  );
+  using (public.is_admin_or_diretor())
+  with check (public.is_admin_or_diretor());
 
 -- Projects: all authenticated can read
 create policy "projects: read" on public.projects
@@ -146,10 +162,7 @@ create policy "projects: read" on public.projects
 -- Managers can update own projects; admins/diretores update all
 create policy "projects: update" on public.projects
   for update to authenticated
-  using (
-    manager_id = auth.uid()
-    or (select system_role from public.profiles where id = auth.uid()) in ('admin','diretor')
-  );
+  using (manager_id = auth.uid() or public.is_admin_or_diretor());
 
 create policy "projects: insert" on public.projects
   for insert to authenticated with check (true);
@@ -179,10 +192,7 @@ create policy "prompts: read" on public.prompts
 
 create policy "prompts: admin write" on public.prompts
   for all to authenticated
-  using (
-    (select system_role from public.profiles where id = auth.uid())
-    in ('admin','diretor')
-  );
+  using (public.is_admin_or_diretor());
 
 -- ── 7. INDEXES ───────────────────────────────────────────────
 create index if not exists idx_activities_project on public.activities(project_id);
