@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus, Check } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -8,7 +8,7 @@ import { Field, Input, Select } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useProjectsStore } from "@/store/projects-store";
-import { USERS } from "@/mocks/users";
+import { useUsersStore } from "@/store/users-store";
 import type { Pendency } from "@/types";
 
 export function PendenciesTab({ projectId }: { projectId: string }) {
@@ -120,11 +120,20 @@ function AddPendencyForm({
   onSubmit: (p: Pendency) => void;
   onCancel: () => void;
 }) {
+  const users = useUsersStore((s) => s.users);
+  const fetchUsers = useUsersStore((s) => s.fetchUsers);
+  useEffect(() => { if (users.length === 0) fetchUsers(); }, [users.length, fetchUsers]);
+  const activeUsers = users.filter((u) => u.active !== false);
+
   const [description, setDescription] = useState("");
   const [ownerType, setOwnerType] = useState<"consultant" | "client">("consultant");
-  const [ownerId, setOwnerId] = useState(USERS[0].id);
+  const [ownerId, setOwnerId] = useState("");
   const [clientName, setClientName] = useState("");
   const [dueDate, setDueDate] = useState("");
+
+  useEffect(() => {
+    if (!ownerId && activeUsers.length > 0) setOwnerId(activeUsers[0].id);
+  }, [activeUsers, ownerId]);
 
   return (
     <div className="space-y-4">
@@ -141,7 +150,8 @@ function AddPendencyForm({
         {ownerType === "consultant" ? (
           <Field label="Responsável">
             <Select value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
-              {USERS.map((u) => (
+              {activeUsers.length === 0 && <option value="">Nenhum usuário cadastrado</option>}
+              {activeUsers.map((u) => (
                 <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </Select>
@@ -161,7 +171,7 @@ function AddPendencyForm({
           disabled={!description.trim() || !dueDate}
           onClick={() => {
             const owner = ownerType === "consultant"
-              ? USERS.find((u) => u.id === ownerId)!
+              ? activeUsers.find((u) => u.id === ownerId)!
               : { name: clientName || "Cliente", initials: (clientName || "CL").slice(0, 2).toUpperCase() };
             onSubmit({
               id: "pd-" + Math.random().toString(36).slice(2, 7),
