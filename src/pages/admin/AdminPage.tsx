@@ -6,6 +6,7 @@ import {
   AlertCircle,
   Bot,
   Crown,
+  Shield,
 } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Card, CardBody } from "@/components/ui/Card";
@@ -15,6 +16,28 @@ import { PipelineByManager, PipelineByConsultant } from "@/features/admin/Pipeli
 import { TopQuestions, PromptUsageMatrix } from "@/features/admin/UsagePanels";
 import { InsightsPanel } from "@/features/admin/InsightsPanel";
 import { DirectorChat } from "@/features/admin/DirectorChat";
+import { useAuthStore } from "@/store/auth-store";
+import type { UserRole } from "@/types";
+
+const ALLOWED_ROLES: UserRole[] = ["admin", "diretor"];
+
+function AccessDenied() {
+  return (
+    <PageWrapper>
+      <div className="flex flex-col items-center justify-center h-[60vh] gap-4 text-center">
+        <div className="h-16 w-16 rounded-full bg-accent-red/10 text-accent-red flex items-center justify-center">
+          <Shield size={28} />
+        </div>
+        <h2 className="text-xl font-semibold text-text-primary">Acesso restrito</h2>
+        <p className="text-sm text-text-muted max-w-sm">
+          O Painel Executivo é acessível apenas para usuários com perfil <strong>Admin</strong> ou{" "}
+          <strong>Diretor</strong>.
+        </p>
+        <Badge tone="red" size="md">Sem permissão</Badge>
+      </div>
+    </PageWrapper>
+  );
+}
 
 function formatBRL(v: number) {
   return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -57,6 +80,11 @@ function KpiCard({
 }
 
 export function AdminPage() {
+  const currentUser = useAuthStore((s) => s.currentUser);
+  if (!currentUser?.systemRole || !ALLOWED_ROLES.includes(currentUser.systemRole)) {
+    return <AccessDenied />;
+  }
+
   return (
     <PageWrapper>
       <div className="flex items-start justify-between mb-5 gap-4">

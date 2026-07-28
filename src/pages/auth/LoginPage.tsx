@@ -353,16 +353,6 @@ export function LoginPage() {
             </button>
           </form>
 
-          {/* Demo hint */}
-          <div className="px-8 pb-6">
-            <div className="rounded-lg border border-border bg-surface px-4 py-3">
-              <p className="text-[10px] text-text-faint leading-relaxed">
-                <span className="font-semibold text-text-muted">Acesso demo:</span>{" "}
-                wagner.lima@consulcard.com.br{" "}
-                <span className="font-mono">/ Cc@2024!WL</span>
-              </p>
-            </div>
-          </div>
         </div>
 
         {/* Footer */}

@@ -22,6 +22,8 @@ const navItems = [
 
 export function Sidebar() {
   const currentUser = useAuthStore((s) => s.currentUser);
+  const canSeeDiretoria =
+    currentUser?.systemRole === "admin" || currentUser?.systemRole === "diretor";
   return (
     <aside className="hidden md:flex flex-col w-[240px] shrink-0 h-screen bg-sidebar text-white">
       <div className="px-5 py-5">
@@ -72,35 +74,39 @@ export function Sidebar() {
           );
         })}
 
-        <div className="my-3 border-t border-white/10" />
+        {canSeeDiretoria && (
+          <>
+            <div className="my-3 border-t border-white/10" />
 
-        <div className="px-2 mb-1 text-[10px] uppercase tracking-wider text-white/40">
-          Diretoria
-        </div>
-        <NavLink
-          to="/admin"
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
-              isActive ? "bg-brand-primary text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
-            )
-          }
-        >
-          <Crown size={16} />
-          <span>Painel Executivo</span>
-        </NavLink>
-        <NavLink
-          to="/users"
-          className={({ isActive }) =>
-            cn(
-              "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
-              isActive ? "bg-brand-primary text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
-            )
-          }
-        >
-          <Users size={16} />
-          <span>Usuários</span>
-        </NavLink>
+            <div className="px-2 mb-1 text-[10px] uppercase tracking-wider text-white/40">
+              Diretoria
+            </div>
+            <NavLink
+              to="/admin"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
+                  isActive ? "bg-brand-primary text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+                )
+              }
+            >
+              <Crown size={16} />
+              <span>Painel Executivo</span>
+            </NavLink>
+            <NavLink
+              to="/users"
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
+                  isActive ? "bg-brand-primary text-white" : "text-white/70 hover:bg-white/5 hover:text-white"
+                )
+              }
+            >
+              <Users size={16} />
+              <span>Usuários</span>
+            </NavLink>
+          </>
+        )}
 
         <div className="my-3 border-t border-white/10" />
 
