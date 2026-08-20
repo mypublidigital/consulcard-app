@@ -78,3 +78,11 @@ grant select (
 revoke update on public.profiles from authenticated;
 
 grant update (name, initials, whatsapp, linkedin) on public.profiles to authenticated;
+
+-- Mesmo raciocínio no INSERT: sem isto, um diretor poderia inserir um perfil
+-- já com system_role='admin' para um auth.user órfão (sem profile), driblando
+-- a hierarquia da Edge Function. Criação real passa pelo service_role.
+revoke insert on public.profiles from authenticated;
+
+grant insert (id, name, initials, role, email, whatsapp, linkedin)
+  on public.profiles to authenticated;
