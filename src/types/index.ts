@@ -84,14 +84,29 @@ export interface Pendency {
   status: "open" | "resolved";
 }
 
+/** Tier de modelo recomendado pela planilha (aba 07 · Custo-Benefício LLM). */
+export type PromptTier = "T1" | "T2" | "T3";
+
 export interface PromptDef {
   id: string;
+  /** Bloco de origem na biblioteca (ex: "Bloco 0 — Pré-Execução"). */
+  bloco: string;
   title: string;
   macroCategory: string;
+  /** Preenchido só quando o prompt vale para mais de uma macro (ex: "Meios de Pagamento / Banking"). */
+  macroCategories?: string[];
   projectTypeId: string | "all";
   activityLabel: string;
-  kind: PromptKind;
   phase: ProjectPhase;
+  /** Fase original da planilha, antes do mapeamento para as 5 fases do app. */
+  phaseLabel: string;
+  tier?: PromptTier;
+  modelo?: string;
+  alternativo?: string;
+  insumos?: string;
+  entregavel?: string;
+  /** "pending" = prompt não reescrito, aguardando especialista (R2, R4). */
+  status: "ready" | "pending";
   body: string;
 }
 

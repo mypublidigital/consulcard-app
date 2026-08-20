@@ -7,11 +7,17 @@ import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { PROMPTS } from "@/mocks/prompts";
+import { PROMPTS, PROMPT_TIERS, withDataProtocol } from "@/mocks/prompts";
 import { PROJECT_TYPES, MACRO_COLOR_CLASSES, findMacro } from "@/mocks/project-types";
 import { useProjectsStore } from "@/store/projects-store";
-import type { PromptDef, ProjectPhase, PromptKind } from "@/types";
+import type { PromptDef, ProjectPhase, PromptTier } from "@/types";
 import { cn } from "@/lib/utils";
+
+const TIER_TONE: Record<PromptTier, "neutral" | "blue" | "purple"> = {
+  T1: "neutral",
+  T2: "blue",
+  T3: "purple",
+};
 
 const PHASES: { id: ProjectPhase; label: string }[] = [
   { id: "planejamento", label: "Planejamento" },
@@ -25,7 +31,7 @@ export function PromptsLibraryPage() {
   const [search, setSearch] = useState("");
   const [macros, setMacros] = useState<string[]>([]);
   const [types, setTypes] = useState<string[]>([]);
-  const [kinds, setKinds] = useState<PromptKind[]>([]);
+  const [tiers, setTiers] = useState<PromptTier[]>([]);
   const [phases, setPhases] = useState<ProjectPhase[]>([]);
   const [active, setActive] = useState<PromptDef | null>(null);
   const projects = useProjectsStore((s) => s.projects);
@@ -34,15 +40,20 @@ export function PromptsLibraryPage() {
     return PROMPTS.filter((p) => {
       if (search) {
         const q = search.toLowerCase();
-        if (!p.title.toLowerCase().includes(q) && !p.body.toLowerCase().includes(q)) return false;
+        const hay = `${p.title} ${p.body} ${p.id} ${p.activityLabel}`.toLowerCase();
+        if (!hay.includes(q)) return false;
       }
-      if (macros.length > 0 && p.macroCategory !== "all" && !macros.includes(p.macroCategory)) return false;
+      if (macros.length > 0) {
+        // macroCategories cobre os prompts válidos para mais de uma macro.
+        const scope = p.macroCategories ?? (p.macroCategory === "all" ? null : [p.macroCategory]);
+        if (scope && !scope.some((m) => macros.includes(m))) return false;
+      }
       if (types.length > 0 && p.projectTypeId !== "all" && !types.includes(p.projectTypeId)) return false;
-      if (kinds.length > 0 && !kinds.includes(p.kind)) return false;
+      if (tiers.length > 0 && (!p.tier || !tiers.includes(p.tier))) return false;
       if (phases.length > 0 && !phases.includes(p.phase)) return false;
       return true;
     });
-  }, [search, macros, types, kinds, phases]);
+  }, [search, macros, types, tiers, phases]);
 
   function toggle<T>(arr: T[], setArr: (v: T[]) => void, val: T) {
     setArr(arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val]);
@@ -68,13 +79,13 @@ export function PromptsLibraryPage() {
             />
           </div>
 
-          <FilterGroup title="Tipo">
-            {(["specialist", "generalist"] as PromptKind[]).map((k) => (
+          <FilterGroup title="Modelo recomendado">
+            {PROMPT_TIERS.map((t) => (
               <Checkbox
-                key={k}
-                checked={kinds.includes(k)}
-                onChange={() => toggle(kinds, setKinds, k)}
-                label={k === "specialist" ? "Especialista" : "Generalista"}
+                key={t.id}
+                checked={tiers.includes(t.id)}
+                onChange={() => toggle(tiers, setTiers, t.id)}
+                label={t.label}
               />
             ))}
           </FilterGroup>
@@ -198,11 +209,12 @@ function PromptCard({
   const macro = prompt.macroCategory !== "all" ? findMacro(prompt.macroCategory) : null;
   const macroColor = macro ? MACRO_COLOR_CLASSES[macro.color] : null;
   const [menuOpen, setMenuOpen] = useState(false);
+  const isPending = prompt.status === "pending";
 
   const preview = prompt.body.split("\n").slice(0, 2).join(" ").slice(0, 130) + "...";
 
   return (
-    <Card className="hover:border-brand-primary/30 h-full flex flex-col">
+    <Card className={cn("h-full flex flex-col", isPending ? "opacity-75" : "hover:border-brand-primary/30")}>
       <CardBody className="flex-1 flex flex-col">
         <div className="flex items-center gap-1.5 mb-2 flex-wrap">
           {macroColor ? (
@@ -210,17 +222,20 @@ function PromptCard({
               {macro?.label}
             </span>
           ) : (
-            <Badge tone="neutral" size="sm">Todos os projetos</Badge>
+            <Badge tone="neutral" size="sm">
+              {prompt.macroCategories ? "Multi-categoria" : "Todos os projetos"}
+            </Badge>
           )}
-          <Badge tone={prompt.kind === "specialist" ? "blue" : "neutral"} size="sm">
-            {prompt.kind === "specialist" ? "Especialista" : "Generalista"}
-          </Badge>
+          {prompt.tier && (
+            <Badge tone={TIER_TONE[prompt.tier]} size="sm">{prompt.tier}</Badge>
+          )}
+          {isPending && <Badge tone="amber" size="sm">Aguarda especialista</Badge>}
         </div>
 
         <h3 className="text-sm font-semibold text-text-primary leading-snug">{prompt.title}</h3>
 
         <div className="text-[11px] text-text-faint mt-1">
-          {prompt.activityLabel}
+          <span className="font-mono">{prompt.id}</span> · {prompt.activityLabel}
         </div>
 
         <p className="text-xs text-text-muted mt-2 line-clamp-2 leading-relaxed flex-1">{preview}</p>
@@ -266,32 +281,69 @@ function PromptCard({
 
 function PromptDetail({ prompt, projects }: { prompt: PromptDef; projects: { id: string; name: string }[] }) {
   const [copied, setCopied] = useState(false);
+  const isPending = prompt.status === "pending";
+
   function copy() {
-    navigator.clipboard.writeText(prompt.body);
+    // Regra da biblioteca: o PD.0 acompanha todo prompt enviado ao modelo.
+    navigator.clipboard.writeText(withDataProtocol(prompt.body));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-1.5">
-        <Badge tone={prompt.kind === "specialist" ? "blue" : "neutral"}>
-          {prompt.kind === "specialist" ? "Especialista" : "Generalista"}
-        </Badge>
+        <Badge tone="neutral">{prompt.id}</Badge>
+        {prompt.tier && <Badge tone={TIER_TONE[prompt.tier]}>{prompt.tier} · {prompt.modelo}</Badge>}
+        <Badge tone="neutral">{prompt.phaseLabel}</Badge>
         <Badge tone="neutral">{prompt.activityLabel}</Badge>
+        {isPending && <Badge tone="amber">Aguarda especialista</Badge>}
       </div>
+
+      {isPending && (
+        <div className="rounded-md border border-accent-amber/30 bg-accent-amber/10 px-4 py-3 text-xs text-text-primary">
+          A revisão ET-05 registrou crítica de método neste prompt, mas não teve autoridade
+          técnica para reescrevê-lo. Ele está na biblioteca como registro — não use como está.
+        </div>
+      )}
+
+      {(prompt.insumos || prompt.entregavel) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {prompt.insumos && (
+            <div className="rounded-md border border-border bg-surface px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-text-faint mb-1">Insumos</div>
+              <div className="text-xs text-text-primary leading-relaxed">{prompt.insumos}</div>
+            </div>
+          )}
+          {prompt.entregavel && (
+            <div className="rounded-md border border-border bg-surface px-3 py-2">
+              <div className="text-[10px] uppercase tracking-wider text-text-faint mb-1">Entregável</div>
+              <div className="text-xs text-text-primary leading-relaxed">{prompt.entregavel}</div>
+            </div>
+          )}
+        </div>
+      )}
 
       <pre className="whitespace-pre-wrap rounded-md border border-border bg-surface p-4 font-mono text-xs text-text-primary leading-relaxed max-h-96 overflow-y-auto">
         {prompt.body}
       </pre>
 
+      {prompt.alternativo && (
+        <p className="text-[11px] text-text-faint">
+          Modelo alternativo: <span className="font-medium text-text-muted">{prompt.alternativo}</span>
+        </p>
+      )}
+
       <div className="flex items-center justify-between gap-2 pt-2 border-t border-border">
         <Button
           variant="secondary"
           size="sm"
+          disabled={isPending}
           leftIcon={copied ? <Check size={14} /> : <Copy size={14} />}
           onClick={copy}
+          title={isPending ? "Prompt pendente de reescrita" : "Copia o prompt já com o Protocolo de Dados (PD.0)"}
         >
-          {copied ? "Copiado" : "Copiar prompt"}
+          {copied ? "Copiado com PD.0" : "Copiar prompt"}
         </Button>
         <select
           onChange={(e) => {

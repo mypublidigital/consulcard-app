@@ -37,9 +37,12 @@ export function CopilotTab({ project }: { project: Project }) {
 
   const phasePrompts = useMemo(
     () =>
-      PROMPTS.filter(
-        (p) => p.macroCategory === project.macroCategory || p.macroCategory === "all"
-      ).slice(0, 6),
+      PROMPTS.filter((p) => {
+        // Prompts ainda não reescritos (R2/R4) não são oferecidos para uso.
+        if (p.status === "pending") return false;
+        if (p.macroCategories) return p.macroCategories.includes(project.macroCategory);
+        return p.macroCategory === project.macroCategory || p.macroCategory === "all";
+      }).slice(0, 6),
     [project]
   );
 
@@ -214,9 +217,11 @@ export function CopilotTab({ project }: { project: Project }) {
               >
                 <div className="flex items-start justify-between gap-2">
                   <span className="text-xs font-medium text-text-primary leading-snug">{p.title}</span>
-                  <Badge tone={p.kind === "specialist" ? "blue" : "neutral"} size="sm">
-                    {p.kind === "specialist" ? "Especialista" : "Generalista"}
-                  </Badge>
+                  {p.tier && (
+                    <Badge tone={p.tier === "T3" ? "purple" : p.tier === "T2" ? "blue" : "neutral"} size="sm">
+                      {p.tier}
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-[10px] text-text-faint mt-1">{p.activityLabel}</div>
               </button>
