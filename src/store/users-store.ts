@@ -9,6 +9,15 @@ function deriveInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+/**
+ * Colunas legíveis pelo cliente. `temp_password` fica de fora de propósito:
+ * o GRANT de coluna no banco impede sua leitura direta, e um `select("*")`
+ * aqui quebraria com "permission denied for column temp_password".
+ * As senhas vêm pela RPC `list_user_passwords`, que aplica a hierarquia.
+ */
+const PROFILE_COLUMNS =
+  "id, name, initials, role, system_role, email, whatsapp, linkedin, active, created_at";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function rowToUser(row: any): User {
   return {
@@ -22,7 +31,6 @@ function rowToUser(row: any): User {
     linkedin: row.linkedin ?? undefined,
     active: row.active ?? true,
     createdAt: row.created_at ?? undefined,
-    password: row.temp_password ?? undefined,
   };
 }
 
@@ -49,17 +57,39 @@ export const useUsersStore = create<UsersState>((set, get) => ({
 
   fetchUsers: async () => {
     set({ loading: true });
-    // Join with auth.users email via a view or use profiles only
-    // We store email in profiles as well for display purposes
+
     const { data, error } = await supabase
       .from("profiles")
-      .select("*")
+      .select(PROFILE_COLUMNS)
       .order("created_at", { ascending: true });
 
-    if (!error && data) {
-      set({ users: data.map(rowToUser) });
+    if (error || !data) {
+      console.error("[users] fetch error:", error);
+      set({ loading: false });
+      return;
     }
-    set({ loading: false });
+
+    const users = data.map(rowToUser);
+
+    // Senhas vêm à parte: a RPC decide, por hierarquia de papel, quais o
+    // usuário atual pode ver. Quem não pode recebe password/canViewPassword
+    // ausentes e a UI mostra "sem permissão".
+    const { data: pwRows, error: pwError } = await supabase.rpc("list_user_passwords");
+    if (pwError) {
+      console.error("[users] password RPC error:", pwError);
+    } else if (pwRows) {
+      const byId = new Map(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (pwRows as any[]).map((r) => [r.user_id, r])
+      );
+      for (const u of users) {
+        const row = byId.get(u.id);
+        u.canViewPassword = row?.can_view ?? false;
+        u.password = row?.temp_password ?? undefined;
+      }
+    }
+
+    set({ users, loading: false });
   },
 
   addUser: async (formData) => {
@@ -82,7 +112,9 @@ export const useUsersStore = create<UsersState>((set, get) => ({
     }
     if (data?.error) throw new Error(data.error);
 
-    const newUser = data.user as User;
+    // Quem cria sempre pode ver a senha gerada — a Edge Function só permite
+    // criar usuários de nível inferior ao próprio.
+    const newUser: User = { ...(data.user as User), canViewPassword: true };
     set((s) => ({ users: [...s.users, newUser] }));
     return newUser;
   },

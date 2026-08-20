@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Pencil,
   Save,
+  Lock,
 } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Card, CardBody } from "@/components/ui/Card";
@@ -76,15 +77,17 @@ function PasswordCell({ userId, initial }: { userId: string; initial?: string })
   const [copied, setCopied] = useState(false);
   const [generated, setGenerated] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
 
   async function handleGenerate() {
     setGenerating(true);
+    setError("");
     try {
       const newPwd = await generateNewPassword(userId);
       setGenerated(newPwd);
       setVisible(true);
     } catch (err) {
-      console.error("Erro ao gerar senha:", err);
+      setError(err instanceof Error ? err.message : "Erro ao gerar senha.");
     } finally {
       setGenerating(false);
     }
@@ -97,6 +100,17 @@ function PasswordCell({ userId, initial }: { userId: string; initial?: string })
   }
 
   const display = generated ?? pwd;
+
+  // Hierarquia: admin não vê senha de outro admin; diretor não vê de admin nem
+  // de outro diretor. O backend também recusa — isto só reflete a decisão dele.
+  if (user && user.canViewPassword === false) {
+    return (
+      <div className="flex items-center gap-1.5 text-text-faint" title="Você não tem permissão para ver a senha deste usuário">
+        <Lock size={11} className="shrink-0" />
+        <span className="text-[11px] italic">sem permissão</span>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-1.5 min-w-0">
@@ -125,6 +139,9 @@ function PasswordCell({ userId, initial }: { userId: string; initial?: string })
       >
         <RefreshCw size={12} className={cn(generating && "animate-spin")} />
       </button>
+      {error && (
+        <span className="text-[10px] text-accent-red truncate" title={error}>{error}</span>
+      )}
     </div>
   );
 }
@@ -141,8 +158,22 @@ const ROLE_OPTIONS: { value: UserRole; label: string; description: string }[] = 
   { value: "consultor", label: "Consultor", description: ROLE_DESCRIPTIONS.consultor },
 ];
 
+const ROLE_RANK: Record<UserRole, number> = { admin: 3, diretor: 2, gerente: 1, consultor: 0 };
+
+/**
+ * Níveis que o usuário logado pode atribuir: apenas os estritamente abaixo do
+ * seu. Impede que um diretor crie/promova alguém a admin (ou a outro diretor),
+ * o que seria escalonamento de privilégio. A Edge Function recusa igualmente.
+ */
+function assignableRoles(current?: UserRole) {
+  const rank = current ? ROLE_RANK[current] : -1;
+  return ROLE_OPTIONS.filter((o) => ROLE_RANK[o.value] < rank);
+}
+
 function AddUserModal({ onClose }: AddUserModalProps) {
   const addUser = useUsersStore((s) => s.addUser);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const roleChoices = assignableRoles(currentUser?.systemRole);
 
   const [form, setForm] = useState({
     name: "",
@@ -345,7 +376,7 @@ function AddUserModal({ onClose }: AddUserModalProps) {
                 </button>
                 {roleOpen && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-lg z-10 overflow-hidden">
-                    {ROLE_OPTIONS.map((opt) => (
+                    {roleChoices.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
@@ -397,6 +428,8 @@ const ROLE_LABEL_MAP: Record<UserRole, string> = {
 
 function EditUserModal({ user, onClose }: EditUserModalProps) {
   const updateUser = useUsersStore((s) => s.updateUser);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const roleChoices = assignableRoles(currentUser?.systemRole);
 
   const [form, setForm] = useState({
     name: user.name,
@@ -565,7 +598,7 @@ function EditUserModal({ user, onClose }: EditUserModalProps) {
               </button>
               {roleOpen && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-lg z-10 overflow-hidden">
-                  {ROLE_OPTIONS.map((opt) => (
+                  {roleChoices.map((opt) => (
                     <button
                       key={opt.value}
                       type="button"
@@ -835,28 +868,47 @@ export function UsersPage() {
 
                     {/* Actions */}
                     <td className="px-4 py-3.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => setEditTarget(user)}
-                          className="p-1.5 rounded-md text-text-faint hover:bg-brand-primary/10 hover:text-brand-primary transition-colors"
-                          title="Editar usuário"
-                        >
-                          <Pencil size={14} />
-                        </button>
-                        <button
-                          onClick={() => setDeleteTarget(user)}
-                          disabled={user.id === currentUser?.id}
-                          className={cn(
-                            "p-1.5 rounded-md transition-colors",
-                            user.id === currentUser?.id
-                              ? "text-text-faint cursor-not-allowed"
-                              : "text-text-faint hover:bg-accent-red/10 hover:text-accent-red"
-                          )}
-                          title={user.id === currentUser?.id ? "Não é possível excluir a si mesmo" : "Excluir usuário"}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
+                      {(() => {
+                        // Mesma hierarquia da senha: só age sobre nível inferior (ou sobre si).
+                        const isSelf = user.id === currentUser?.id;
+                        const canManage = isSelf || user.canViewPassword !== false;
+                        return (
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => setEditTarget(user)}
+                              disabled={!canManage}
+                              className={cn(
+                                "p-1.5 rounded-md transition-colors",
+                                canManage
+                                  ? "text-text-faint hover:bg-brand-primary/10 hover:text-brand-primary"
+                                  : "text-text-faint/40 cursor-not-allowed"
+                              )}
+                              title={canManage ? "Editar usuário" : "Sem permissão para editar este nível de acesso"}
+                            >
+                              <Pencil size={14} />
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget(user)}
+                              disabled={isSelf || !canManage}
+                              className={cn(
+                                "p-1.5 rounded-md transition-colors",
+                                isSelf || !canManage
+                                  ? "text-text-faint/40 cursor-not-allowed"
+                                  : "text-text-faint hover:bg-accent-red/10 hover:text-accent-red"
+                              )}
+                              title={
+                                isSelf
+                                  ? "Não é possível excluir a si mesmo"
+                                  : !canManage
+                                    ? "Sem permissão para excluir este nível de acesso"
+                                    : "Excluir usuário"
+                              }
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ))

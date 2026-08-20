@@ -22,6 +22,16 @@ function generatePassword(name: string): string {
   return `Cc@${rand}${initials}`;
 }
 
+function roleRank(r?: string): number {
+  switch (r) {
+    case "admin": return 3;
+    case "diretor": return 2;
+    case "gerente": return 1;
+    case "consultor": return 0;
+    default: return -1;
+  }
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -71,12 +81,42 @@ serve(async (req) => {
       return json({ error: "Sem permissão para gerenciar usuários." }, 403);
     }
 
+    // ── Hierarquia: só se age sobre quem tem rank estritamente menor ─────
+    // Sem isso, um diretor poderia resetar a senha de um admin e assumir a
+    // conta — tornando a restrição de visibilidade puramente cosmética.
+    const callerRank = isBootstrap ? 3 : roleRank(callerRole);
+
+    async function targetRank(userId: string): Promise<number> {
+      const { data } = await admin
+        .from("profiles")
+        .select("system_role")
+        .eq("id", userId)
+        .single();
+      return roleRank(data?.system_role as string | undefined);
+    }
+
+    /** Bloqueia a ação se o alvo tiver rank >= ao do chamador (exceto sobre si mesmo). */
+    async function denyIfOutranked(userId: string): Promise<Response | null> {
+      if (userId === caller.id) return null;
+      if (callerRank <= (await targetRank(userId))) {
+        return json({ error: "Sem permissão para gerenciar um usuário deste nível." }, 403);
+      }
+      return null;
+    }
+
     const payload = await req.json();
     const action = payload.action as string;
 
     // ── CREATE ──────────────────────────────────────────────────────────
     if (action === "create") {
       const { name, email, whatsapp, linkedin, systemRole, role } = payload;
+
+      // Não se cria alguém de nível igual ou superior ao seu: quem cria
+      // conhece a senha gerada, então isso seria escalonamento direto.
+      if (callerRank <= roleRank(systemRole)) {
+        return json({ error: "Sem permissão para criar um usuário deste nível." }, 403);
+      }
+
       const password = generatePassword(name);
       const initials = deriveInitials(name);
 
@@ -127,6 +167,20 @@ serve(async (req) => {
     // ── UPDATE ──────────────────────────────────────────────────────────
     if (action === "update") {
       const { id, name, email, whatsapp, linkedin, systemRole, role } = payload;
+
+      const denied = await denyIfOutranked(id);
+      if (denied) return denied;
+
+      // Nem promover alguém para um nível igual/acima do seu. Reenviar o
+      // papel atual é no-op e continua permitido — do contrário um admin não
+      // conseguiria editar o próprio nome.
+      if (systemRole !== undefined) {
+        const changingRole = roleRank(systemRole) !== (await targetRank(id));
+        if (changingRole && callerRank <= roleRank(systemRole)) {
+          return json({ error: "Sem permissão para atribuir este nível de acesso." }, 403);
+        }
+      }
+
       const update: Record<string, unknown> = {};
       if (name !== undefined) { update.name = name; update.initials = deriveInitials(name); }
       if (role !== undefined) update.role = role;
@@ -149,6 +203,10 @@ serve(async (req) => {
     // ── RESET PASSWORD ──────────────────────────────────────────────────
     if (action === "resetPassword") {
       const { id, name } = payload;
+
+      const denied = await denyIfOutranked(id);
+      if (denied) return denied;
+
       const password = generatePassword(name ?? "User");
 
       const { error: pwErr } = await admin.auth.admin.updateUserById(id, { password });
@@ -162,6 +220,9 @@ serve(async (req) => {
     if (action === "delete") {
       const { id } = payload;
       if (id === caller.id) return json({ error: "Não é possível excluir a si mesmo." }, 400);
+
+      const denied = await denyIfOutranked(id);
+      if (denied) return denied;
 
       const { error: delErr } = await admin.auth.admin.deleteUser(id);
       // profiles row is removed via ON DELETE CASCADE from auth.users

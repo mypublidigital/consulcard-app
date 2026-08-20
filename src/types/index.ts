@@ -16,6 +16,8 @@ export interface User {
   whatsapp?: string;
   linkedin?: string;
   password?: string;
+  /** Se o usuário logado tem permissão para ver a senha deste perfil (hierarquia de papéis). */
+  canViewPassword?: boolean;
   active?: boolean;
   createdAt?: string;
 }

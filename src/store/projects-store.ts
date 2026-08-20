@@ -52,6 +52,9 @@ function seedActivities(): Record<string, Activity[]> {
   return out;
 }
 
+const PROFILE_COLUMNS =
+  "id, name, initials, role, system_role, email, whatsapp, linkedin, active, created_at";
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function profileToUser(row: any): User {
   return {
@@ -131,10 +134,12 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
     set({ loading: true });
     const { data, error } = await supabase
       .from("projects")
+      // Colunas de profiles são explícitas: temp_password não é legível pelo
+      // cliente (GRANT de coluna), então `profiles(*)` falharia.
       .select(`
         *,
-        manager:profiles!projects_manager_id_fkey(*),
-        project_consultants(profile_id, profiles(*))
+        manager:profiles!projects_manager_id_fkey(${PROFILE_COLUMNS}),
+        project_consultants(profile_id, profiles(${PROFILE_COLUMNS}))
       `)
       .order("created_at", { ascending: false });
 
