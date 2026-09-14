@@ -1,0 +1,202 @@
+{
+  "fonte": "src/mocks/project-types.ts do repositorio consulcard-app (espelha a aba \"01 · Tipos de Projeto\" da planilha modelo V03)",
+  "atualizadoEm": "2026-09-14",
+  "regra": "O CRM DEVE emitir exatamente estes ids em macro_category e project_type. Rotulos sao para exibicao; ids sao o contrato.",
+  "portes": [
+    {
+      "id": "P1",
+      "label": "Pequeno",
+      "duracao": "ate 4 semanas"
+    },
+    {
+      "id": "P2",
+      "label": "Pequeno-Medio",
+      "duracao": "ate 8 semanas"
+    },
+    {
+      "id": "P3",
+      "label": "Medio",
+      "duracao": "ate 16 semanas"
+    },
+    {
+      "id": "P4",
+      "label": "Grande",
+      "duracao": "ate 30 semanas"
+    },
+    {
+      "id": "P5",
+      "label": "Muito Grande",
+      "duracao": "30+ semanas"
+    }
+  ],
+  "macroCategorias": [
+    {
+      "id": "contabil-regulatorio",
+      "label": "Contábil / Regulatório",
+      "cor": "blue",
+      "tipos": [
+        {
+          "id": "setup-contabil",
+          "label": "Setup Contábil e Regulatório",
+          "complexidadeTipica": "4-5",
+          "produtoAncora": true
+        },
+        {
+          "id": "revisao-cosif",
+          "label": "Revisão e Adequação COSIF",
+          "complexidadeTipica": "3-4",
+          "produtoAncora": false
+        },
+        {
+          "id": "mapeamento-bacen",
+          "label": "Mapeamento Regulatório BACEN",
+          "complexidadeTipica": "3-4",
+          "produtoAncora": false
+        }
+      ]
+    },
+    {
+      "id": "meios-pagamento",
+      "label": "Meios de Pagamento",
+      "cor": "purple",
+      "tipos": [
+        {
+          "id": "emissor-cartao",
+          "label": "Estruturação de Emissor de Cartão",
+          "complexidadeTipica": "4-5",
+          "produtoAncora": true
+        },
+        {
+          "id": "migracao-processadora",
+          "label": "Migração de Processadora / Plataforma",
+          "complexidadeTipica": "4-5",
+          "produtoAncora": false
+        },
+        {
+          "id": "otimizacao-tarifas",
+          "label": "Otimização de Tarifas de Bandeira",
+          "complexidadeTipica": "2-3",
+          "produtoAncora": false
+        },
+        {
+          "id": "setup-bandeira",
+          "label": "Setup de Bandeira / BIN Sponsor",
+          "complexidadeTipica": "3-4",
+          "produtoAncora": false
+        },
+        {
+          "id": "estruturacao-adquirencia",
+          "label": "Adquirência — Estruturação",
+          "complexidadeTipica": "4-5",
+          "produtoAncora": false
+        },
+        {
+          "id": "operacao-cartao",
+          "label": "Estruturação de Operação de Cartão",
+          "complexidadeTipica": "2-4",
+          "produtoAncora": false
+        }
+      ]
+    },
+    {
+      "id": "banking-conta-digital",
+      "label": "Banking / Conta Digital",
+      "cor": "teal",
+      "tipos": [
+        {
+          "id": "conta-digital",
+          "label": "Estruturação de Conta Digital",
+          "complexidadeTipica": "4-5",
+          "produtoAncora": false
+        },
+        {
+          "id": "baas",
+          "label": "BaaS — Banking as a Service",
+          "complexidadeTipica": "4-5",
+          "produtoAncora": false
+        },
+        {
+          "id": "pld-aml",
+          "label": "PLD / AML — Estruturação",
+          "complexidadeTipica": "3-4",
+          "produtoAncora": false
+        },
+        {
+          "id": "kyc-onboarding",
+          "label": "KYC / Onboarding Regulatório",
+          "complexidadeTipica": "2-3",
+          "produtoAncora": false
+        }
+      ]
+    },
+    {
+      "id": "consultoria-estrategica",
+      "label": "Consultoria Estratégica",
+      "cor": "amber",
+      "tipos": [
+        {
+          "id": "diagnostico",
+          "label": "Diagnóstico / Assessment",
+          "complexidadeTipica": "1-3",
+          "produtoAncora": false
+        },
+        {
+          "id": "estrategia-produto",
+          "label": "Estratégia de Produto",
+          "complexidadeTipica": "2-4",
+          "produtoAncora": false
+        },
+        {
+          "id": "modelo-negocio",
+          "label": "Modelo de Negócio",
+          "complexidadeTipica": "2-4",
+          "produtoAncora": false
+        },
+        {
+          "id": "transformacao-digital",
+          "label": "Transformação Digital / BPO",
+          "complexidadeTipica": "2-4",
+          "produtoAncora": false
+        }
+      ]
+    },
+    {
+      "id": "open-finance",
+      "label": "Open Finance / Pag. Instantâneos",
+      "cor": "green",
+      "tipos": [
+        {
+          "id": "pix-implantacao",
+          "label": "PIX — Implantação",
+          "complexidadeTipica": "3-4",
+          "produtoAncora": false
+        },
+        {
+          "id": "open-finance-assessoria",
+          "label": "Open Finance — Assessoria",
+          "complexidadeTipica": "2-4",
+          "produtoAncora": false
+        }
+      ]
+    },
+    {
+      "id": "revisao-operacional",
+      "label": "Revisão Operacional",
+      "cor": "red",
+      "tipos": [
+        {
+          "id": "mandates-bandeira",
+          "label": "Gestão de Mandates Bandeira",
+          "complexidadeTipica": "2-4",
+          "produtoAncora": false
+        },
+        {
+          "id": "suporte-regulatorio",
+          "label": "Suporte Regulatório Contínuo",
+          "complexidadeTipica": "2-3",
+          "produtoAncora": false
+        }
+      ]
+    }
+  ]
+}
