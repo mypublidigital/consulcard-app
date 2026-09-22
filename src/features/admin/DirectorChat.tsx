@@ -28,10 +28,19 @@ export function DirectorChat() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  // Campo cresce com o texto até ~10 linhas e passa a rolar.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [input]);
 
   async function send(text: string) {
     if (!text.trim() || loading) return;
@@ -118,6 +127,7 @@ export function DirectorChat() {
       <div className="border-t border-border p-3">
         <div className="flex items-end gap-2">
           <textarea
+            ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
@@ -128,7 +138,7 @@ export function DirectorChat() {
             }}
             placeholder="Pergunte sobre status, riscos, adoção do co-piloto..."
             rows={1}
-            className="flex-1 resize-none rounded-md border border-border bg-white px-3 py-2 text-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/15"
+            className="flex-1 resize-none overflow-y-auto rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/15"
           />
           <Button onClick={() => send(input)} disabled={!input.trim() || loading} leftIcon={<Send size={14} />}>
             Enviar

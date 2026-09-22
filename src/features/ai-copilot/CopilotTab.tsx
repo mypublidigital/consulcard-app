@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Send, Upload, Loader2, Sparkles, FileText, ChevronRight, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
@@ -7,10 +7,10 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
-import { PROMPTS } from "@/mocks/prompts";
+import { DATA_PROTOCOL, PROMPTS, withDataProtocol } from "@/mocks/prompts";
 import { COPILOT_INITIAL_MESSAGES } from "@/mocks/copilot";
 import { sendChatMessage, type ChatMessage } from "@/lib/chat";
-import type { Project, ProjectPhase } from "@/types";
+import type { Project, ProjectPhase, PromptDef } from "@/types";
 
 interface Message {
   role: "user" | "assistant";
@@ -32,8 +32,27 @@ export function CopilotTab({ project }: { project: Project }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  // Prompt da biblioteca carregado no campo: o envio anexa o PD.0 e (no backend)
+  // escolhe o modelo pelo tier da ficha.
+  const [activePrompt, setActivePrompt] = useState<PromptDef | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const currentPhase: ProjectPhase = "execucao";
+
+  // Campo cresce com o texto até ~10 linhas e passa a rolar (item 11).
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
+  }, [input]);
+
+  function loadPrompt(p: PromptDef) {
+    // Antes só o título ia para o campo, então o agente nunca via o prompt (item 14).
+    setActivePrompt(p);
+    setInput(p.body);
+    requestAnimationFrame(() => inputRef.current?.focus());
+  }
 
   const phasePrompts = useMemo(
     () =>
@@ -58,20 +77,31 @@ export function CopilotTab({ project }: { project: Project }) {
 
   async function send(text: string) {
     if (!text.trim() || loading) return;
-    const userMsg: ChatMessage = { role: "user", content: text };
-    const history = [...messages, userMsg];
+    const prompt = activePrompt;
+    // Regra da biblioteca: prompt vindo da ficha segue com o PD.0 anexado.
+    const content = prompt ? withDataProtocol(text) : text;
+    const userMsg: ChatMessage = { role: "user", content };
+    const previous = messages;
+    const history = [...previous, userMsg];
     setMessages(history);
     setInput("");
+    setActivePrompt(null);
     setLoading(true);
     setError("");
 
     try {
-      const reply = await sendChatMessage(
-        history,
-        { agentType: "copilot", projectContext }
-      );
+      const reply = await sendChatMessage(history, {
+        agentType: "copilot",
+        projectContext,
+        tier: prompt?.tier,
+      });
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch (err) {
+      // Tira a mensagem que falhou do histórico e devolve o texto ao campo.
+      // Antes ela ficava presa e era reenviada em toda tentativa seguinte.
+      setMessages(previous);
+      setInput(text);
+      setActivePrompt(prompt);
       setError(err instanceof Error ? err.message : "Erro ao contactar o co-piloto.");
     } finally {
       setLoading(false);
@@ -143,6 +173,25 @@ export function CopilotTab({ project }: { project: Project }) {
         </div>
 
         <div className="border-t border-border p-3">
+          {activePrompt && (
+            <div className="mb-2 flex items-start justify-between gap-2 rounded-md border border-brand-primary/20 bg-brand-primary/5 px-3 py-2 text-[11px]">
+              <div className="text-text-primary">
+                <span className="font-semibold">Prompt {activePrompt.id} carregado</span>
+                {activePrompt.tier && <span className="text-text-muted"> · {activePrompt.tier}</span>}
+                <span className="text-text-muted"> — substitua os campos entre [colchetes] antes de enviar. O PD.0 é anexado no envio.</span>
+                {activePrompt.insumos && (
+                  <div className="mt-0.5 text-text-faint">Insumos: {activePrompt.insumos}</div>
+                )}
+              </div>
+              <button
+                onClick={() => { setActivePrompt(null); setInput(""); }}
+                className="shrink-0 text-text-faint hover:text-text-primary"
+                title="Descartar prompt"
+              >
+                ✕
+              </button>
+            </div>
+          )}
           <div className="flex items-end gap-2">
             <input ref={fileRef} type="file" accept=".txt,.docx,.md" className="hidden" onChange={handleFile} />
             <Button
@@ -155,8 +204,12 @@ export function CopilotTab({ project }: { project: Project }) {
               Transcrição
             </Button>
             <textarea
+              ref={inputRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                if (!e.target.value) setActivePrompt(null);
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -165,7 +218,7 @@ export function CopilotTab({ project }: { project: Project }) {
               }}
               placeholder="Pergunte algo ao co-piloto ou cole uma transcrição..."
               rows={1}
-              className="flex-1 resize-none rounded-md border border-border bg-white px-3 py-2 text-sm focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/15"
+              className="flex-1 resize-none overflow-y-auto rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/15"
             />
             <Button onClick={() => send(input)} disabled={!input.trim() || loading} leftIcon={<Send size={14} />}>
               Enviar
@@ -212,7 +265,7 @@ export function CopilotTab({ project }: { project: Project }) {
             {phasePrompts.map((p) => (
               <button
                 key={p.id}
-                onClick={() => setInput(p.title)}
+                onClick={() => loadPrompt(p)}
                 className="w-full text-left px-4 py-3 hover:bg-surface"
               >
                 <div className="flex items-start justify-between gap-2">
@@ -247,8 +300,22 @@ export function CopilotTab({ project }: { project: Project }) {
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+/** Mensagens do usuário maiores que isto (ex: transcrição colada) aparecem recolhidas. */
+const COLLAPSE_AT = 1200;
+
+// memo: sem isto, cada tecla digitada no campo redesenha o histórico inteiro e
+// reprocessa o Markdown de todas as mensagens — com uma transcrição longa no
+// histórico, a digitação trava (item 17).
+const MessageBubble = memo(function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
+  const [expanded, setExpanded] = useState(false);
+  // O PD.0 vai para o modelo, mas não é exibido — só sinalizado.
+  const withProtocol = isUser && message.content.endsWith(DATA_PROTOCOL);
+  const text = withProtocol
+    ? message.content.slice(0, -DATA_PROTOCOL.length).replace(/\n\n---\n\n$/, "")
+    : message.content;
+  const isLong = isUser && text.length > COLLAPSE_AT;
+  const shown = isLong && !expanded ? text.slice(0, COLLAPSE_AT) + "…" : text;
   return (
     <div className={cn("flex items-start gap-3", isUser && "flex-row-reverse")}>
       {isUser ? (
@@ -271,14 +338,23 @@ function MessageBubble({ message }: { message: Message }) {
           )}
         >
           {isUser ? (
-            <ReactMarkdown
-              components={{
-                p: ({ children }) => <p className="m-0">{children}</p>,
-                strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
-              }}
-            >
-              {message.content}
-            </ReactMarkdown>
+            <>
+              {/* Texto do usuário vai como texto puro, com quebras de linha preservadas. */}
+              <div className="whitespace-pre-wrap break-words">{shown}</div>
+              {isLong && (
+                <button
+                  onClick={() => setExpanded((v) => !v)}
+                  className="mt-2 text-[11px] underline text-white/80 hover:text-white"
+                >
+                  {expanded
+                    ? "Recolher"
+                    : `Ver tudo (${text.length.toLocaleString("pt-BR")} caracteres)`}
+                </button>
+              )}
+              {withProtocol && (
+                <div className="mt-2 text-[10px] text-white/70">+ Protocolo de Dados (PD.0) anexado</div>
+              )}
+            </>
           ) : (
             <div className="prose-sm max-w-none">
               <ReactMarkdown
@@ -305,4 +381,4 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
     </div>
   );
-}
+});

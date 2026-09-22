@@ -8,6 +8,8 @@ export interface ChatMessage {
 export interface ChatOptions {
   agentType: "director" | "copilot";
   projectContext?: Record<string, unknown>;
+  /** Tier da ficha da biblioteca (T1/T2/T3); o backend escolhe o modelo por ele. */
+  tier?: "T1" | "T2" | "T3";
 }
 
 /**
@@ -23,6 +25,7 @@ export async function sendChatMessage(
       messages,
       agentType: options.agentType,
       projectContext: options.projectContext,
+      tier: options.tier,
     },
   });
 

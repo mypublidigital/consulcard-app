@@ -16,11 +16,13 @@ import { ProjectSize, ProjectStatusBadge } from "@/components/ui/StatusPills";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { useProjectsStore } from "@/store/projects-store";
+import { useAuthStore } from "@/store/auth-store";
 import { PROJECT_TYPES, MACRO_COLOR_CLASSES, findMacro, findProjectType } from "@/mocks/project-types";
-import { CURRENT_USER } from "@/mocks/users";
 import { formatDateLong, relativeFromNow } from "@/lib/utils";
 
-function firstName(name: string) {
+function firstName(name?: string) {
+  // Sem nome (perfil ainda sem cadastro completo), o nome vira o e-mail — não exibir.
+  if (!name || name.includes("@")) return "";
   return name.split(" ")[0];
 }
 
@@ -67,6 +69,8 @@ function MetricCard({
 }
 
 export function DashboardPage() {
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const userFirstName = firstName(currentUser?.name);
   const projects = useProjectsStore((s) => s.projects);
   const pendencies = useProjectsStore((s) => s.pendencies);
   const activitiesByProject = useProjectsStore((s) => s.activitiesByProject);
@@ -107,7 +111,7 @@ export function DashboardPage() {
     <PageWrapper>
       <div className="mb-6">
         <h1 className="text-2xl font-semibold text-text-primary">
-          {greeting()}, {firstName(CURRENT_USER.name)}
+          {greeting()}{userFirstName ? `, ${userFirstName}` : ""}
         </h1>
         <p className="text-sm text-text-muted mt-0.5 capitalize">{formatDateLong(new Date())}</p>
       </div>
