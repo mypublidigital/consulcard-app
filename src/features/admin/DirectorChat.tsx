@@ -7,6 +7,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { DIRECTOR_SUGGESTIONS } from "@/mocks/admin";
 import { sendChatMessage, type ChatMessage } from "@/lib/chat";
+import { useProjectsStore } from "@/store/projects-store";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -29,6 +30,41 @@ export function DirectorChat() {
   const [error, setError] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const projects = useProjectsStore((s) => s.projects);
+  const activitiesByProject = useProjectsStore((s) => s.activitiesByProject);
+  const pendencies = useProjectsStore((s) => s.pendencies);
+
+  /**
+   * Portfólio real para o agente executivo. Antes o prompt dele tinha
+   * projetos e consultores fictícios cravados no código, e ele respondia
+   * sobre um portfólio que não existe.
+   */
+  function buildPortfolio() {
+    const today = new Date().toISOString().slice(0, 10);
+    return {
+      dataReferencia: today,
+      projetos: projects.map((p) => {
+        const acts = activitiesByProject[p.id] ?? [];
+        return {
+          nome: p.name,
+          cliente: p.client,
+          tipo: p.projectType,
+          status: p.status,
+          progresso: p.progress,
+          inicio: p.startDate,
+          previsaoFim: p.targetEndDate,
+          gerente: p.manager?.name,
+          consultores: p.consultants.map((c) => c.name),
+          atividades: {
+            total: acts.length,
+            concluidas: acts.filter((a) => a.status === "done").length,
+            atrasadas: acts.filter((a) => a.status !== "done" && a.dueDate && a.dueDate < today).length,
+          },
+          pendenciasAbertas: pendencies.filter((x) => x.projectId === p.id && x.status === "open").length,
+        };
+      }),
+    };
+  }
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -52,12 +88,12 @@ export function DirectorChat() {
     setError("");
 
     try {
-      // Send only the actual conversation (skip the initial assistant greeting for efficiency)
-      const reply = await sendChatMessage(
+      // A saudação é do app, não da conversa.
+      const result = await sendChatMessage(
         history.filter((m) => !(m.role === "assistant" && m === INITIAL[0])),
-        { agentType: "director" }
+        { agentType: "director", portfolio: buildPortfolio() }
       );
-      setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      setMessages((m) => [...m, { role: "assistant", content: result.content }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao contactar o co-piloto.");
     } finally {

@@ -7,10 +7,12 @@ import { Avatar } from "@/components/ui/Avatar";
 import { Card } from "@/components/ui/Card";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/store/auth-store";
+import { useProjectsStore } from "@/store/projects-store";
 import { DATA_PROTOCOL, PROMPTS, withDataProtocol } from "@/mocks/prompts";
 import { COPILOT_INITIAL_MESSAGES } from "@/mocks/copilot";
 import { sendChatMessage, type ChatMessage } from "@/lib/chat";
 import { appendCopilotExchange, loadCopilotHistory } from "@/lib/copilot-history";
+import { downloadText, extractDrawio } from "@/lib/download";
 import type { Project, ProjectPhase, PromptDef } from "@/types";
 
 interface Message {
@@ -40,6 +42,11 @@ export function CopilotTab({ project }: { project: Project }) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const currentPhase: ProjectPhase = "execucao";
   const [historyLoading, setHistoryLoading] = useState(true);
+  // Resposta em construção (streaming) e se a última foi cortada pelo limite.
+  const [streamingText, setStreamingText] = useState("");
+  const [truncated, setTruncated] = useState(false);
+  const activities = useProjectsStore((s) => s.activitiesByProject[project.id] ?? []);
+  const pendencies = useProjectsStore((s) => s.pendencies);
 
   // Carrega o histórico gravado do projeto (itens 1 e 12). A saudação inicial
   // só aparece em projeto sem conversa e não é gravada.
@@ -86,14 +93,29 @@ export function CopilotTab({ project }: { project: Project }) {
     [project]
   );
 
+  // Contexto real do projeto: o agente só conhece o que vier aqui.
   const projectContext = {
     name: project.name,
     client: project.client,
     macroCategory: project.macroCategory,
     projectType: project.projectType,
+    status: project.status,
     progress: project.progress,
     complexity: project.complexity,
-    manager: project.manager,
+    startDate: project.startDate,
+    targetEndDate: project.targetEndDate,
+    managerName: project.manager?.name,
+    consultantNames: project.consultants.map((c) => c.name),
+    activities: activities.slice(0, 40).map((a) => ({
+      label: a.label,
+      status: a.status ?? "todo",
+      assignee: a.assignee?.name,
+      dueDate: a.dueDate,
+    })),
+    openPendencies: pendencies
+      .filter((p) => p.projectId === project.id && p.status === "open")
+      .slice(0, 20)
+      .map((p) => ({ description: p.description, owner: p.owner.name, dueDate: p.dueDate })),
   };
 
   async function send(text: string) {
@@ -109,18 +131,32 @@ export function CopilotTab({ project }: { project: Project }) {
     setActivePrompt(null);
     setLoading(true);
     setError("");
+    setTruncated(false);
+    setStreamingText("");
 
     const askedAt = new Date();
+    // Atualiza a tela no máximo uma vez por quadro durante o streaming.
+    let pendingText = "";
+    let frame = 0;
     try {
       // A saudação inicial é do app, não da conversa: a API espera que a
       // conversa comece por uma mensagem do usuário.
       const apiHistory = history.slice(history.findIndex((m) => m.role === "user"));
-      const reply = await sendChatMessage(apiHistory, {
+      const result = await sendChatMessage(apiHistory, {
         agentType: "copilot",
         projectContext,
         tier: prompt?.tier,
+        onText: (t) => {
+          pendingText = t;
+          if (!frame) frame = requestAnimationFrame(() => { frame = 0; setStreamingText(pendingText); });
+        },
       });
+      cancelAnimationFrame(frame);
+      setStreamingText("");
+      const reply = result.content;
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
+      // Cortada pelo limite: avisa e oferece continuar (item 8).
+      if (result.stopReason === "max_tokens") setTruncated(true);
 
       if (currentUser?.id) {
         appendCopilotExchange(project.id, currentUser.id, { content, at: askedAt }, { content: reply, at: new Date() })
@@ -129,6 +165,8 @@ export function CopilotTab({ project }: { project: Project }) {
           );
       }
     } catch (err) {
+      cancelAnimationFrame(frame);
+      setStreamingText("");
       // Tira a mensagem que falhou do histórico e devolve o texto ao campo.
       // Antes ela ficava presa e era reenviada em toda tentativa seguinte.
       setMessages(previous);
@@ -175,7 +213,22 @@ export function CopilotTab({ project }: { project: Project }) {
           ) : (
             messages.map((m, i) => <MessageBubble key={i} message={m} />)
           )}
-          {loading && (
+          {loading && streamingText && (
+            <MessageBubble message={{ role: "assistant", content: streamingText }} streaming />
+          )}
+          {!loading && truncated && (
+            <div className="flex items-center justify-between gap-3 rounded-lg border border-accent-amber/30 bg-accent-amber/10 px-4 py-3 text-xs text-text-primary">
+              <span>A resposta atingiu o limite de tamanho e foi interrompida.</span>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => send("Continue exatamente de onde parou, sem repetir nada do que já foi escrito.")}
+              >
+                Continuar
+              </Button>
+            </div>
+          )}
+          {loading && !streamingText && (
             <div className="flex items-start gap-3">
               <div className="h-7 w-7 rounded-full bg-brand-primary/10 text-brand-primary flex items-center justify-center">
                 <Sparkles size={14} />
@@ -331,7 +384,14 @@ const COLLAPSE_AT = 1200;
 // memo: sem isto, cada tecla digitada no campo redesenha o histórico inteiro e
 // reprocessa o Markdown de todas as mensagens — com uma transcrição longa no
 // histórico, a digitação trava (item 17).
-const MessageBubble = memo(function MessageBubble({ message }: { message: Message }) {
+const MessageBubble = memo(function MessageBubble({
+  message,
+  streaming = false,
+}: {
+  message: Message;
+  /** Resposta ainda sendo escrita: sem barra de ações. */
+  streaming?: boolean;
+}) {
   const isUser = message.role === "user";
   const [expanded, setExpanded] = useState(false);
   // O PD.0 vai para o modelo, mas não é exibido — só sinalizado.
@@ -403,7 +463,41 @@ const MessageBubble = memo(function MessageBubble({ message }: { message: Messag
             </div>
           )}
         </div>
+        {!isUser && !streaming && <AssistantActions content={message.content} />}
       </div>
     </div>
   );
 });
+
+/** Ações de uma resposta do agente: copiar e, se houver, baixar o fluxograma. */
+function AssistantActions({ content }: { content: string }) {
+  const [copied, setCopied] = useState(false);
+  const drawio = useMemo(() => extractDrawio(content), [content]);
+
+  function copy() {
+    navigator.clipboard.writeText(content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-text-faint">
+      <button onClick={copy} className="hover:text-brand-primary">
+        {copied ? "Copiado ✓" : "Copiar"}
+      </button>
+      {drawio.status === "ok" && (
+        <button
+          onClick={() => downloadText("fluxograma.drawio", drawio.xml, "application/xml")}
+          className="font-medium text-brand-primary hover:underline"
+        >
+          Baixar fluxograma (.drawio)
+        </button>
+      )}
+      {drawio.status === "invalid" && (
+        <span className="text-accent-red">
+          O XML do fluxograma está incompleto ou inválido — peça ao co-piloto para gerar de novo.
+        </span>
+      )}
+    </div>
+  );
+}
