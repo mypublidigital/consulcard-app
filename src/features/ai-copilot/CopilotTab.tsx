@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Send, Upload, Loader2, Sparkles, FileText, ChevronRight, AlertCircle } from "lucide-react";
+import { Send, Upload, Loader2, Sparkles, FileText, ChevronRight, AlertCircle, ImagePlus } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
@@ -10,7 +10,8 @@ import { useAuthStore } from "@/store/auth-store";
 import { useProjectsStore } from "@/store/projects-store";
 import { DATA_PROTOCOL, PROMPTS, withDataProtocol } from "@/mocks/prompts";
 import { COPILOT_INITIAL_MESSAGES } from "@/mocks/copilot";
-import { sendChatMessage, type ChatMessage } from "@/lib/chat";
+import { sendChatMessage, type ApiMessage, type ChatMessage } from "@/lib/chat";
+import { IMAGE_ACCEPT, MAX_IMAGES_PER_MESSAGE, toImageAttachment, type ImageAttachment } from "@/lib/images";
 import { appendCopilotExchange, loadCopilotHistory } from "@/lib/copilot-history";
 import { downloadBlob, downloadText, extractDrawio, safeFilename } from "@/lib/download";
 import {
@@ -60,6 +61,36 @@ export function CopilotTab({
   const [truncated, setTruncated] = useState(false);
   /** Etapa atual de uma tarefa longa (transcrição em partes). */
   const [progress, setProgress] = useState("");
+  // Imagens coladas/anexadas aguardando envio (item 2).
+  const [images, setImages] = useState<ImageAttachment[]>([]);
+  const imageRef = useRef<HTMLInputElement>(null);
+
+  async function addImages(files: (File | Blob)[]) {
+    const room = MAX_IMAGES_PER_MESSAGE - images.length;
+    if (room <= 0) {
+      setError(`No máximo ${MAX_IMAGES_PER_MESSAGE} imagens por mensagem.`);
+      return;
+    }
+    try {
+      const added = await Promise.all(
+        files.slice(0, room).map((f, i) => toImageAttachment(f, f instanceof File ? f.name : `imagem-colada-${i + 1}.png`))
+      );
+      setImages((cur) => [...cur, ...added]);
+      if (files.length > room) setError(`Só as primeiras ${room} imagens foram anexadas (limite de ${MAX_IMAGES_PER_MESSAGE}).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível anexar a imagem.");
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const files = Array.from(e.clipboardData.items)
+      .filter((it) => it.kind === "file" && it.type.startsWith("image/"))
+      .map((it) => it.getAsFile())
+      .filter((f): f is File => !!f);
+    if (files.length === 0) return; // texto comum: deixa colar normalmente
+    e.preventDefault();
+    addImages(files);
+  }
   const activities = useProjectsStore((s) => s.activitiesByProject[project.id] ?? []);
   const pendencies = useProjectsStore((s) => s.pendencies);
 
@@ -142,23 +173,31 @@ export function CopilotTab({
       .map((p) => ({ description: p.description, owner: p.owner.name, dueDate: p.dueDate })),
   };
 
-  async function send(text: string) {
-    if (!text.trim() || loading) return;
+  async function send(rawText: string) {
+    const attached = images;
+    if ((!rawText.trim() && attached.length === 0) || loading) return;
+    const text = rawText.trim() ? rawText : "Analise a(s) imagem(ns) anexada(s).";
     const prompt = activePrompt;
     // Transcrição colada no campo também é dividida, como a enviada por arquivo (item 18).
-    if (!prompt && text.length > TRANSCRIPT_CHUNK_CHARS) {
+    if (!prompt && attached.length === 0 && text.length > TRANSCRIPT_CHUNK_CHARS) {
       setInput("");
       await processLongTranscript("texto colado", text, splitTranscript(text));
       return;
     }
     // Regra da biblioteca: prompt vindo da ficha segue com o PD.0 anexado.
     const content = prompt ? withDataProtocol(text) : text;
-    const userMsg: ChatMessage = { role: "user", content };
+    // No histórico (tela e banco) a imagem vira uma marcação: ela só é enviada
+    // ao modelo nesta pergunta — reenviá-la a cada turno multiplicaria o custo.
+    const marker = attached.length
+      ? `\n\n[${attached.length === 1 ? "imagem anexada" : `${attached.length} imagens anexadas`}: ${attached.map((a) => a.name).join(", ")}]`
+      : "";
+    const userMsg: ChatMessage = { role: "user", content: content + marker };
     const previous = messages;
     const history = [...previous, userMsg];
     setMessages(history);
     setInput("");
     setActivePrompt(null);
+    setImages([]);
     setLoading(true);
     setError("");
     setTruncated(false);
@@ -169,7 +208,20 @@ export function CopilotTab({
     let pendingText = "";
     let frame = 0;
     try {
-      const apiHistory = trimHistory(history);
+      const apiHistory: ApiMessage[] = trimHistory(history);
+      if (attached.length) {
+        // A pergunta atual vai com as imagens em blocos, antes do texto.
+        apiHistory[apiHistory.length - 1] = {
+          role: "user",
+          content: [
+            ...attached.map((a) => ({
+              type: "image" as const,
+              source: { type: "base64" as const, media_type: a.mediaType, data: a.data },
+            })),
+            { type: "text" as const, text: content },
+          ],
+        };
+      }
       const result = await sendChatMessage(apiHistory, {
         agentType: "copilot",
         projectContext,
@@ -187,7 +239,7 @@ export function CopilotTab({
       if (result.stopReason === "max_tokens") setTruncated(true);
 
       if (currentUser?.id) {
-        appendCopilotExchange(project.id, currentUser.id, { content, at: askedAt }, { content: reply, at: new Date() })
+        appendCopilotExchange(project.id, currentUser.id, { content: userMsg.content, at: askedAt }, { content: reply, at: new Date() })
           .catch((e) =>
             setError(`A resposta chegou, mas não foi salva no histórico: ${e instanceof Error ? e.message : e}`)
           );
@@ -198,8 +250,9 @@ export function CopilotTab({
       // Tira a mensagem que falhou do histórico e devolve o texto ao campo.
       // Antes ela ficava presa e era reenviada em toda tentativa seguinte.
       setMessages(previous);
-      setInput(text);
+      setInput(rawText);
       setActivePrompt(prompt);
+      setImages(attached);
       setError(err instanceof Error ? err.message : "Erro ao contactar o co-piloto.");
     } finally {
       setLoading(false);
@@ -366,17 +419,52 @@ export function CopilotTab({
               </button>
             </div>
           )}
+          {images.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {images.map((img) => (
+                <div key={img.id} className="relative h-16 w-16 overflow-hidden rounded-md border border-border bg-surface">
+                  <img src={img.previewUrl} alt={img.name} className="h-full w-full object-cover" />
+                  <button
+                    onClick={() => setImages((cur) => cur.filter((x) => x.id !== img.id))}
+                    className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-[10px] text-white hover:bg-black/80"
+                    title="Remover imagem"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex items-end gap-2">
             <input ref={fileRef} type="file" accept={TRANSCRIPT_ACCEPT} className="hidden" onChange={handleFile} />
+            <input
+              ref={imageRef}
+              type="file"
+              accept={IMAGE_ACCEPT}
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                addImages(Array.from(e.target.files ?? []));
+                e.target.value = "";
+              }}
+            />
             <Button
               variant="secondary"
               size="md"
               leftIcon={<Upload size={14} />}
               onClick={() => fileRef.current?.click()}
-              title="Fazer upload de transcrição"
+              title="Fazer upload de transcrição (.txt, .docx, .md, .vtt, .srt)"
             >
               Transcrição
             </Button>
+            <Button
+              variant="secondary"
+              size="md"
+              leftIcon={<ImagePlus size={14} />}
+              onClick={() => imageRef.current?.click()}
+              title="Anexar imagem — ou cole direto no campo com Ctrl+V"
+              aria-label="Anexar imagem"
+            />
             <textarea
               ref={inputRef}
               value={input}
@@ -384,17 +472,22 @@ export function CopilotTab({
                 setInput(e.target.value);
                 if (!e.target.value) setActivePrompt(null);
               }}
+              onPaste={handlePaste}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
                   send(input);
                 }
               }}
-              placeholder="Pergunte algo ao co-piloto ou cole uma transcrição..."
+              placeholder="Pergunte algo, cole uma transcrição ou uma imagem (Ctrl+V)..."
               rows={1}
               className="flex-1 resize-none overflow-y-auto rounded-md border border-border bg-white px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap break-words focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/15"
             />
-            <Button onClick={() => send(input)} disabled={!input.trim() || loading} leftIcon={<Send size={14} />}>
+            <Button
+              onClick={() => send(input)}
+              disabled={(!input.trim() && images.length === 0) || loading}
+              leftIcon={<Send size={14} />}
+            >
               Enviar
             </Button>
           </div>

@@ -110,7 +110,8 @@ Deno.serve(async (req) => {
     new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   let body: {
-    messages: { role: "user" | "assistant"; content: string }[];
+    // content: texto, ou blocos quando há imagem anexada (repassados à API como vêm).
+    messages: { role: "user" | "assistant"; content: string | unknown[] }[];
     agentType: "director" | "copilot";
     projectContext?: Record<string, unknown>;
     portfolio?: unknown;

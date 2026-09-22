@@ -5,6 +5,17 @@ export interface ChatMessage {
   content: string;
 }
 
+/** Bloco de conteúdo da API: texto ou imagem em base64. */
+export type ApiContentBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+
+/** Mensagem como vai para a API: texto simples ou blocos (quando há imagem). */
+export interface ApiMessage {
+  role: "user" | "assistant";
+  content: string | ApiContentBlock[];
+}
+
 export interface ChatOptions {
   agentType: "director" | "copilot";
   projectContext?: Record<string, unknown>;
@@ -32,7 +43,7 @@ const FUNCTION_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
  * Streaming evita timeout em respostas longas — antes o limite era 1.500
  * tokens e respostas grandes chegavam cortadas (itens 8 e 10).
  */
-export async function sendChatMessage(messages: ChatMessage[], options: ChatOptions): Promise<ChatResult> {
+export async function sendChatMessage(messages: ApiMessage[], options: ChatOptions): Promise<ChatResult> {
   const { data: { session } } = await supabase.auth.getSession();
   const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 
