@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Search, Copy, Check, ChevronRight } from "lucide-react";
 import { PageWrapper, PageHeader } from "@/components/layout/PageWrapper";
 import { Card, CardBody } from "@/components/ui/Card";
@@ -12,6 +13,15 @@ import { PROJECT_TYPES, MACRO_COLOR_CLASSES, findMacro } from "@/mocks/project-t
 import { useProjectsStore } from "@/store/projects-store";
 import type { PromptDef, ProjectPhase, PromptTier } from "@/types";
 import { cn } from "@/lib/utils";
+
+/**
+ * Abre o co-piloto do projeto com o prompt já carregado (item 15). Antes o
+ * botão só navegava para o projeto — e com window.location, reiniciando o
+ * app — e o prompt escolhido se perdia no caminho.
+ */
+function projectPromptPath(projectId: string, promptId: string) {
+  return `/projects/${projectId}?tab=copilot&prompt=${encodeURIComponent(promptId)}`;
+}
 
 const TIER_TONE: Record<PromptTier, "neutral" | "blue" | "purple"> = {
   T1: "neutral",
@@ -210,6 +220,7 @@ function PromptCard({
   const macroColor = macro ? MACRO_COLOR_CLASSES[macro.color] : null;
   const [menuOpen, setMenuOpen] = useState(false);
   const isPending = prompt.status === "pending";
+  const navigate = useNavigate();
 
   const preview = prompt.body.split("\n").slice(0, 2).join(" ").slice(0, 130) + "...";
 
@@ -250,6 +261,8 @@ function PromptCard({
               variant="outline"
               rightIcon={<ChevronRight size={12} />}
               onClick={() => setMenuOpen((v) => !v)}
+              disabled={isPending}
+              title={isPending ? "Prompt pendente de reescrita" : undefined}
             >
               Usar em projeto
             </Button>
@@ -262,7 +275,7 @@ function PromptCard({
                       key={pr.id}
                       onClick={() => {
                         setMenuOpen(false);
-                        window.location.href = `/projects/${pr.id}`;
+                        navigate(projectPromptPath(pr.id, prompt.id));
                       }}
                       className="block w-full text-left px-3 py-2 text-xs hover:bg-surface text-text-primary truncate"
                     >
@@ -282,6 +295,7 @@ function PromptCard({
 function PromptDetail({ prompt, projects }: { prompt: PromptDef; projects: { id: string; name: string }[] }) {
   const [copied, setCopied] = useState(false);
   const isPending = prompt.status === "pending";
+  const navigate = useNavigate();
 
   function copy() {
     // Regra da biblioteca: o PD.0 acompanha todo prompt enviado ao modelo.
@@ -347,8 +361,9 @@ function PromptDetail({ prompt, projects }: { prompt: PromptDef; projects: { id:
         </Button>
         <select
           onChange={(e) => {
-            if (e.target.value) window.location.href = `/projects/${e.target.value}`;
+            if (e.target.value) navigate(projectPromptPath(e.target.value, prompt.id));
           }}
+          disabled={isPending}
           defaultValue=""
           className="h-9 rounded-md border border-border bg-white px-2.5 text-sm focus:border-brand-primary focus:outline-none"
         >

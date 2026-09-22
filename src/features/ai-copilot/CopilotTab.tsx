@@ -12,7 +12,11 @@ import { DATA_PROTOCOL, PROMPTS, withDataProtocol } from "@/mocks/prompts";
 import { COPILOT_INITIAL_MESSAGES } from "@/mocks/copilot";
 import { sendChatMessage, type ChatMessage } from "@/lib/chat";
 import { appendCopilotExchange, loadCopilotHistory } from "@/lib/copilot-history";
-import { downloadText, extractDrawio } from "@/lib/download";
+import { downloadBlob, downloadText, extractDrawio, safeFilename } from "@/lib/download";
+import {
+  TRANSCRIPT_ACCEPT, TRANSCRIPT_CHUNK_CHARS, consolidatePrompt, partPrompt, readTranscriptFile, splitTranscript,
+} from "@/lib/transcript";
+import { dropDuplicateTitle, guessTitle, markdownToBlocks } from "@/lib/export/blocks";
 import type { Project, ProjectPhase, PromptDef } from "@/types";
 
 interface Message {
@@ -29,7 +33,16 @@ const PHASES: { id: ProjectPhase; label: string }[] = [
   { id: "entrega", label: "Entrega" },
 ];
 
-export function CopilotTab({ project }: { project: Project }) {
+export function CopilotTab({
+  project,
+  initialPromptId,
+  onPromptConsumed,
+}: {
+  project: Project;
+  /** Prompt escolhido na Biblioteca via "Usar em projeto" (item 15). */
+  initialPromptId?: string | null;
+  onPromptConsumed?: () => void;
+}) {
   const currentUser = useAuthStore((s) => s.currentUser);
   const [messages, setMessages] = useState<ChatMessage[]>(COPILOT_INITIAL_MESSAGES);
   const [input, setInput] = useState("");
@@ -45,6 +58,8 @@ export function CopilotTab({ project }: { project: Project }) {
   // Resposta em construção (streaming) e se a última foi cortada pelo limite.
   const [streamingText, setStreamingText] = useState("");
   const [truncated, setTruncated] = useState(false);
+  /** Etapa atual de uma tarefa longa (transcrição em partes). */
+  const [progress, setProgress] = useState("");
   const activities = useProjectsStore((s) => s.activitiesByProject[project.id] ?? []);
   const pendencies = useProjectsStore((s) => s.pendencies);
 
@@ -74,6 +89,15 @@ export function CopilotTab({ project }: { project: Project }) {
     el.style.height = "auto";
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [input]);
+
+  // Prompt vindo da Biblioteca: carrega no campo depois que o histórico abrir.
+  useEffect(() => {
+    if (!initialPromptId || historyLoading) return;
+    const p = PROMPTS.find((x) => x.id === initialPromptId && x.status === "ready");
+    if (p) loadPrompt(p);
+    onPromptConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPromptId, historyLoading]);
 
   function loadPrompt(p: PromptDef) {
     // Antes só o título ia para o campo, então o agente nunca via o prompt (item 14).
@@ -121,6 +145,12 @@ export function CopilotTab({ project }: { project: Project }) {
   async function send(text: string) {
     if (!text.trim() || loading) return;
     const prompt = activePrompt;
+    // Transcrição colada no campo também é dividida, como a enviada por arquivo (item 18).
+    if (!prompt && text.length > TRANSCRIPT_CHUNK_CHARS) {
+      setInput("");
+      await processLongTranscript("texto colado", text, splitTranscript(text));
+      return;
+    }
     // Regra da biblioteca: prompt vindo da ficha segue com o PD.0 anexado.
     const content = prompt ? withDataProtocol(text) : text;
     const userMsg: ChatMessage = { role: "user", content };
@@ -139,9 +169,7 @@ export function CopilotTab({ project }: { project: Project }) {
     let pendingText = "";
     let frame = 0;
     try {
-      // A saudação inicial é do app, não da conversa: a API espera que a
-      // conversa comece por uma mensagem do usuário.
-      const apiHistory = history.slice(history.findIndex((m) => m.role === "user"));
+      const apiHistory = trimHistory(history);
       const result = await sendChatMessage(apiHistory, {
         agentType: "copilot",
         projectContext,
@@ -182,15 +210,83 @@ export function CopilotTab({ project }: { project: Project }) {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const text = await file.text().catch(() => "");
     if (fileRef.current) fileRef.current.value = "";
-    if (!text) {
-      setError(`Não foi possível ler "${file.name}".`);
+    setError("");
+
+    let text: string;
+    try {
+      text = await readTranscriptFile(file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Não foi possível ler "${file.name}".`);
       return;
     }
-    // Mesmo caminho do envio normal: grava no histórico e devolve o texto ao
-    // campo se falhar. (Leitura de .docx e divisão de transcrições longas: Fase 4.)
-    await send(`Transcrição de reunião — ${file.name}:\n\n${text.slice(0, 8000)}`);
+    if (!text) {
+      setError(`"${file.name}" está vazio ou não pôde ser lido.`);
+      return;
+    }
+
+    const parts = splitTranscript(text);
+    if (parts.length === 1) {
+      // Cabe numa chamada: vai inteira. Antes era cortada em 8.000 caracteres.
+      await send(`Transcrição de reunião — ${file.name}:\n\n${text}`);
+    } else {
+      await processLongTranscript(file.name, text, parts);
+    }
+  }
+
+  /**
+   * Transcrição longa demais para uma chamada (item 18): cada parte é lida em
+   * separado, extraindo decisões, pendências e riscos; depois os extratos são
+   * consolidados numa ata. Só a ata final entra no histórico da conversa.
+   */
+  async function processLongTranscript(fileName: string, text: string, parts: string[]) {
+    if (loading) return;
+    const summary = `Transcrição de reunião — ${fileName} (${text.length.toLocaleString("pt-BR")} caracteres, processada em ${parts.length} partes)`;
+    const previous = messages;
+    setMessages([...previous, { role: "user", content: summary }]);
+    setLoading(true);
+    setTruncated(false);
+    const askedAt = new Date();
+    try {
+      const extracts: string[] = [];
+      for (let i = 0; i < parts.length; i++) {
+        setProgress(`Lendo a parte ${i + 1} de ${parts.length} da transcrição…`);
+        const r = await sendChatMessage(
+          [{ role: "user", content: partPrompt(fileName, i + 1, parts.length, parts[i]) }],
+          { agentType: "copilot", projectContext }
+        );
+        extracts.push(r.content);
+      }
+      setProgress("Consolidando a ata…");
+      let pendingText = "";
+      let frame = 0;
+      const final = await sendChatMessage(
+        [{ role: "user", content: consolidatePrompt(fileName, extracts) }],
+        {
+          agentType: "copilot",
+          projectContext,
+          onText: (t) => {
+            pendingText = t;
+            if (!frame) frame = requestAnimationFrame(() => { frame = 0; setStreamingText(pendingText); });
+          },
+        }
+      );
+      cancelAnimationFrame(frame);
+      setStreamingText("");
+      setMessages((m) => [...m, { role: "assistant", content: final.content }]);
+      if (final.stopReason === "max_tokens") setTruncated(true);
+      if (currentUser?.id) {
+        appendCopilotExchange(project.id, currentUser.id, { content: summary, at: askedAt }, { content: final.content, at: new Date() })
+          .catch((e) => setError(`A ata foi gerada, mas não foi salva no histórico: ${e instanceof Error ? e.message : e}`));
+      }
+    } catch (err) {
+      setStreamingText("");
+      setMessages(previous);
+      setError(`Falha ao processar a transcrição: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setProgress("");
+      setLoading(false);
+    }
   }
 
   return (
@@ -237,7 +333,7 @@ export function CopilotTab({ project }: { project: Project }) {
                 <div className="text-xs text-text-faint mb-1">Co-piloto</div>
                 <div className="rounded-lg border border-border bg-surface px-4 py-3 flex items-center gap-2 text-sm text-text-muted">
                   <Loader2 size={14} className="animate-spin text-brand-primary" />
-                  <span className="animate-pulse-soft">Pensando...</span>
+                  <span className="animate-pulse-soft">{progress || "Pensando..."}</span>
                 </div>
               </div>
             </div>
@@ -271,7 +367,7 @@ export function CopilotTab({ project }: { project: Project }) {
             </div>
           )}
           <div className="flex items-end gap-2">
-            <input ref={fileRef} type="file" accept=".txt,.docx,.md" className="hidden" onChange={handleFile} />
+            <input ref={fileRef} type="file" accept={TRANSCRIPT_ACCEPT} className="hidden" onChange={handleFile} />
             <Button
               variant="secondary"
               size="md"
@@ -378,6 +474,30 @@ export function CopilotTab({ project }: { project: Project }) {
   );
 }
 
+/**
+ * Quanto do histórico acompanha cada pergunta. Sem limite, toda pergunta
+ * reenviava a conversa inteira — transcrições antigas incluídas —, ficando
+ * lenta, cara e, depois de algumas reuniões, estourando o limite do modelo.
+ * ~200 mil caracteres ≈ 50 mil tokens: cabe com folga em qualquer tier.
+ */
+const HISTORY_BUDGET_CHARS = 200_000;
+
+/** Mensagens mais recentes que cabem no orçamento; começa sempre por "user". */
+function trimHistory(history: ChatMessage[]): ChatMessage[] {
+  let total = 0;
+  let start = history.length;
+  for (let i = history.length - 1; i >= 0; i--) {
+    total += history[i].content.length;
+    // A última mensagem (a pergunta atual) vai sempre, mesmo se sozinha passar do orçamento.
+    if (total > HISTORY_BUDGET_CHARS && i < history.length - 1) break;
+    start = i;
+  }
+  const kept = history.slice(start);
+  // A saudação é do app, e a API espera que a conversa comece pelo usuário.
+  const firstUser = kept.findIndex((m) => m.role === "user");
+  return kept.slice(firstUser);
+}
+
 /** Mensagens do usuário maiores que isto (ex: transcrição colada) aparecem recolhidas. */
 const COLLAPSE_AT = 1200;
 
@@ -469,9 +589,14 @@ const MessageBubble = memo(function MessageBubble({
   );
 });
 
-/** Ações de uma resposta do agente: copiar e, se houver, baixar o fluxograma. */
+/**
+ * Ações de uma resposta do agente: copiar, exportar (item 3) e, se houver,
+ * baixar o fluxograma. Antes não havia nenhuma forma de exportar.
+ */
 function AssistantActions({ content }: { content: string }) {
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState<"docx" | "pdf" | null>(null);
+  const [exportError, setExportError] = useState("");
   const drawio = useMemo(() => extractDrawio(content), [content]);
 
   function copy() {
@@ -480,11 +605,39 @@ function AssistantActions({ content }: { content: string }) {
     setTimeout(() => setCopied(false), 1500);
   }
 
+  async function exportAs(format: "md" | "docx" | "pdf") {
+    const title = guessTitle(content, "Resposta do co-piloto");
+    if (format === "md") return downloadText(safeFilename(title, "md"), content, "text/markdown;charset=utf-8");
+    setBusy(format);
+    setExportError("");
+    try {
+      const doc = { title, blocks: dropDuplicateTitle(markdownToBlocks(content), title), aiGenerated: true };
+      const blob = format === "docx"
+        ? await (await import("@/lib/export/docx")).docToDocxBlob(doc)
+        : await (await import("@/lib/export/pdf")).docToPdfBlob(doc);
+      downloadBlob(safeFilename(title, format), blob);
+    } catch (err) {
+      setExportError(`Falha ao exportar: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-text-faint">
       <button onClick={copy} className="hover:text-brand-primary">
         {copied ? "Copiado ✓" : "Copiar"}
       </button>
+      <span className="text-border">|</span>
+      <span>Exportar:</span>
+      <button onClick={() => exportAs("md")} className="hover:text-brand-primary">Markdown</button>
+      <button onClick={() => exportAs("docx")} disabled={busy !== null} className="hover:text-brand-primary disabled:opacity-50">
+        {busy === "docx" ? "Gerando…" : "Word"}
+      </button>
+      <button onClick={() => exportAs("pdf")} disabled={busy !== null} className="hover:text-brand-primary disabled:opacity-50">
+        {busy === "pdf" ? "Gerando…" : "PDF"}
+      </button>
+      {exportError && <span className="text-accent-red">{exportError}</span>}
       {drawio.status === "ok" && (
         <button
           onClick={() => downloadText("fluxograma.drawio", drawio.xml, "application/xml")}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   FileText,
   Plus,
@@ -48,7 +48,20 @@ export function ProjectDetailPage() {
   const setStatus = useProjectsStore((s) => s.setProjectStatus);
   const syncError = useProjectsStore((s) => s.syncError);
   const clearSyncError = useProjectsStore((s) => s.clearSyncError);
-  const [tab, setTab] = useState<TabId>("activities");
+  // ?tab=copilot&prompt=ID vem de "Usar em projeto" na Biblioteca (item 15).
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get("tab") as TabId | null;
+  const [tab, setTab] = useState<TabId>(
+    tabParam && TABS.some((t) => t.id === tabParam) ? tabParam : "activities"
+  );
+  const initialPromptId = searchParams.get("prompt");
+  /** Consumido o prompt, limpa a URL para não recarregá-lo a cada visita. */
+  const consumePromptParam = () => {
+    const next = new URLSearchParams(searchParams);
+    next.delete("prompt");
+    next.delete("tab");
+    setSearchParams(next, { replace: true });
+  };
   const [showEdit, setShowEdit] = useState(false);
 
   if (!project) {
@@ -204,7 +217,9 @@ export function ProjectDetailPage() {
 
       <div className="max-w-[1440px] mx-auto px-6 pb-8">
         {tab === "activities" && <ActivityBoardTab projectId={project.id} />}
-        {tab === "copilot" && <CopilotTab project={project} />}
+        {tab === "copilot" && (
+          <CopilotTab project={project} initialPromptId={initialPromptId} onPromptConsumed={consumePromptParam} />
+        )}
         {tab === "pendencies" && <PendenciesTab projectId={project.id} />}
         {tab === "documents" && <DocumentsTab projectId={project.id} />}
         {tab === "report" && <StatusReportTab project={project} />}

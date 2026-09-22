@@ -1,17 +1,85 @@
 import { useState } from "react";
-import { Download, RefreshCw, Loader2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import { Download, Sparkles, Loader2, FileText } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
+import { Textarea } from "@/components/ui/Input";
 import { useProjectsStore } from "@/store/projects-store";
 import type { Project } from "@/types";
 import { Avatar } from "@/components/ui/Avatar";
 import { ActivityStatus } from "@/components/ui/StatusPills";
+import { PROMPTS, withDataProtocol } from "@/mocks/prompts";
+import { sendChatMessage } from "@/lib/chat";
+import { downloadBlob, safeFilename } from "@/lib/download";
+import { buildReportData, notesForM12, reportToDocModel } from "./report-data";
+
+type ExportFormat = "pdf" | "pptx" | "docx";
 
 export function StatusReportTab({ project }: { project: Project }) {
   const activities = useProjectsStore((s) => s.activitiesByProject[project.id] ?? []);
-  const pendencies = useProjectsStore((s) => s.pendencies.filter((p) => p.projectId === project.id && p.status === "open"));
-  const [generatedAt, setGeneratedAt] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [loading, setLoading] = useState(false);
+  const allPendencies = useProjectsStore((s) => s.pendencies);
+  const pendencies = allPendencies.filter((p) => p.projectId === project.id && p.status === "open");
+  const generatedAt = new Date().toISOString().slice(0, 10);
+
+  // Relatório da IA (ficha M1.2) e qual versão está na tela.
+  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [showAi, setShowAi] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [exporting, setExporting] = useState<ExportFormat | null>(null);
+  const [error, setError] = useState("");
+
+  const data = buildReportData(project, activities, allPendencies);
+  const showingAi = showAi && !!aiReport;
+
+  async function generateWithAi() {
+    setGenerating(true);
+    setError("");
+    try {
+      // Usa a ficha oficial da biblioteca: M1.2 · Relatório de Status Semanal (T1).
+      const m12 = PROMPTS.find((p) => p.id === "M1.2");
+      const body = (m12?.body ?? "Gere um Relatório de Status Executivo a partir destes dados: [NOTAS]")
+        .replace("[NOTAS]", `\n\n${notesForM12(data, notes)}\n\n`);
+      const result = await sendChatMessage(
+        [{ role: "user", content: withDataProtocol(body) }],
+        { agentType: "copilot", tier: m12?.tier ?? "T1" }
+      );
+      setAiReport(result.content);
+      setShowAi(true);
+      setNotesOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não foi possível gerar o relatório.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function exportAs(format: ExportFormat) {
+    setExporting(format);
+    setError("");
+    try {
+      const ai = showingAi ? aiReport ?? undefined : undefined;
+      const base = `Status_Report_${project.name}_${generatedAt}`;
+      let blob: Blob;
+      if (format === "pptx") {
+        const { statusReportToPptxBlob } = await import("@/lib/export/pptx");
+        blob = await statusReportToPptxBlob(data, ai);
+      } else if (format === "pdf") {
+        const { docToPdfBlob } = await import("@/lib/export/pdf");
+        blob = await docToPdfBlob(reportToDocModel(data, ai));
+      } else {
+        const { docToDocxBlob } = await import("@/lib/export/docx");
+        blob = await docToDocxBlob(reportToDocModel(data, ai));
+      }
+      downloadBlob(safeFilename(base, format), blob);
+    } catch (err) {
+      setError(`Falha ao exportar: ${err instanceof Error ? err.message : err}`);
+    } finally {
+      setExporting(null);
+    }
+  }
 
   const done = activities.filter((a) => a.status === "done");
   const inProgress = activities.filter((a) => a.status === "in_progress" || a.status === "review");
@@ -24,38 +92,100 @@ export function StatusReportTab({ project }: { project: Project }) {
     .sort((x, y) => (x.dueDate ?? "").localeCompare(y.dueDate ?? ""))
     .slice(0, 4);
 
-  function regenerate() {
-    setLoading(true);
-    setTimeout(() => {
-      setGeneratedAt(new Date().toISOString().slice(0, 10));
-      setLoading(false);
-    }, 2000);
-  }
+  const exportButton = (format: ExportFormat, label: string) => (
+    <Button
+      variant="secondary"
+      size="sm"
+      disabled={exporting !== null}
+      leftIcon={exporting === format ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+      onClick={() => exportAs(format)}
+    >
+      {label}
+    </Button>
+  );
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
         <div>
           <h2 className="text-sm font-semibold text-text-primary">Status Report</h2>
           <p className="text-xs text-text-muted">
-            Última versão: {new Date(generatedAt).toLocaleDateString("pt-BR")}
+            {showingAi
+              ? "Versão escrita pela IA (ficha M1.2) a partir dos dados do projeto"
+              : `Dados do sistema em ${new Date(`${generatedAt}T12:00:00`).toLocaleDateString("pt-BR")}`}
           </p>
+          {aiReport && (
+            <button onClick={() => setShowAi((v) => !v)} className="mt-1 text-xs text-brand-primary hover:underline">
+              {showingAi ? "Ver dados do sistema" : "Ver versão da IA"}
+            </button>
+          )}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="secondary" size="sm" leftIcon={<Download size={14} />}>
-            Exportar PDF
-          </Button>
-          <Button
-            size="sm"
-            leftIcon={loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            onClick={regenerate}
-            disabled={loading}
-          >
-            {loading ? "Gerando..." : "Gerar novo relatório"}
+        <div className="flex flex-wrap items-center gap-2">
+          {exportButton("pdf", "PDF")}
+          {exportButton("pptx", "PowerPoint")}
+          {exportButton("docx", "Word")}
+          <Button size="sm" leftIcon={<Sparkles size={14} />} onClick={() => setNotesOpen(true)} disabled={generating}>
+            {aiReport ? "Gerar de novo com IA" : "Gerar com IA"}
           </Button>
         </div>
       </div>
 
+      {error && (
+        <div className="mb-4 rounded-md border border-accent-red/30 bg-accent-red/10 px-4 py-3 text-sm text-accent-red">{error}</div>
+      )}
+
+      <Modal open={notesOpen} onClose={() => !generating && setNotesOpen(false)} title="Gerar Status Report com IA">
+        <div className="space-y-3">
+          <p className="text-xs text-text-muted">
+            A IA usa a ficha <strong>M1.2 · Relatório de Status Semanal</strong> da biblioteca, com as atividades e
+            pendências reais deste projeto. Acrescente o que o sistema não sabe — decisões, riscos, conversas com o
+            cliente. O Protocolo de Dados (PD.0) é anexado: a IA não inventa números.
+          </p>
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notas da semana (opcional): o que aconteceu, decisões, riscos, bloqueios..."
+            rows={6}
+          />
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setNotesOpen(false)} disabled={generating}>Cancelar</Button>
+            <Button
+              onClick={generateWithAi}
+              disabled={generating}
+              leftIcon={generating ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+            >
+              {generating ? "Gerando..." : "Gerar relatório"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {showingAi ? (
+        <Card>
+          <div className="p-6 md:p-8 max-w-3xl mx-auto">
+            <div className="flex items-center gap-2 mb-4 text-xs text-text-faint">
+              <FileText size={14} /> Conteúdo gerado com apoio de IA — revise antes de enviar ao cliente.
+            </div>
+            <div className="prose-sm max-w-none text-sm text-text-primary leading-relaxed">
+              <ReactMarkdown
+                components={{
+                  h1: ({ children }) => <h2 className="text-base font-semibold mt-4 mb-2">{children}</h2>,
+                  h2: ({ children }) => <h3 className="text-sm font-semibold mt-4 mb-2">{children}</h3>,
+                  h3: ({ children }) => <h4 className="text-xs font-semibold uppercase tracking-wide text-text-muted mt-3 mb-1">{children}</h4>,
+                  p: ({ children }) => <p className="mb-2">{children}</p>,
+                  ul: ({ children }) => <ul className="list-disc pl-5 mb-2 space-y-0.5">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal pl-5 mb-2 space-y-0.5">{children}</ol>,
+                  table: ({ children }) => <table className="w-full text-xs border-collapse my-2">{children}</table>,
+                  th: ({ children }) => <th className="border border-border bg-surface px-2 py-1 text-left font-medium">{children}</th>,
+                  td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
+                }}
+              >
+                {aiReport ?? ""}
+              </ReactMarkdown>
+            </div>
+          </div>
+        </Card>
+      ) : (
       <Card>
         <div className="p-6 md:p-8 max-w-3xl mx-auto">
           {/* Report header */}
@@ -170,11 +300,12 @@ export function StatusReportTab({ project }: { project: Project }) {
           </Section>
 
           <div className="pt-5 mt-6 border-t border-border text-[11px] text-text-faint flex items-center justify-between">
-            <span>Gerado automaticamente pelo co-piloto Consulcard</span>
+            <span>Gerado a partir dos dados do sistema</span>
             <span className="font-mono">{project.id.toUpperCase()}</span>
           </div>
         </div>
       </Card>
+      )}
     </div>
   );
 }
