@@ -16,7 +16,6 @@ import { Avatar } from "@/components/ui/Avatar";
 import { ComplexityBadge, LLMImpact } from "@/components/ui/StatusPills";
 import { Drawer, Modal } from "@/components/ui/Modal";
 import { Field, Input, Select, Textarea } from "@/components/ui/Input";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { useProjectsStore } from "@/store/projects-store";
 import type { Activity, ActivityStatusValue } from "@/types";
 import { cn } from "@/lib/utils";
@@ -61,22 +60,17 @@ export function ActivityBoardTab({ projectId }: { projectId: string }) {
 
   const draggingActivity = draggingId ? activities.find((a) => a.id === draggingId) : null;
 
-  if (activities.length === 0) {
-    return (
-      <EmptyState
-        icon={<Plus size={28} />}
-        title="Nenhuma atividade ainda"
-        description="Adicione a primeira atividade deste projeto para começar."
-        action={<Button onClick={() => setShowAdd(true)} leftIcon={<Plus size={14} />}>Atividade</Button>}
-      />
-    );
-  }
-
+  // O quadro é desenhado sempre, mesmo sem atividades. Antes, com zero
+  // atividades, o componente retornava uma tela vazia ANTES de montar o modal
+  // de criação — o botão "+ Atividade" mudava o estado mas o modal não existia,
+  // então nada acontecia (item 5), e o Kanban sumia da tela (item 7).
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
         <div className="text-sm text-text-muted">
-          {activities.length} atividades · {grouped.done.length} concluídas
+          {activities.length === 0
+            ? "Nenhuma atividade ainda — adicione a primeira para começar."
+            : `${activities.length} atividades · ${grouped.done.length} concluídas`}
         </div>
         <Button size="sm" variant="outline" leftIcon={<Plus size={14} />} onClick={() => setShowAdd(true)}>
           Atividade
@@ -331,7 +325,8 @@ function AddActivityForm({
           disabled={!label.trim()}
           onClick={() => {
             onSubmit({
-              id: "act-" + Math.random().toString(36).slice(2, 7),
+              // UUID: o id é chave primária global; 5 caracteres aleatórios colidiam.
+              id: crypto.randomUUID(),
               label,
               description: description || "Atividade custom adicionada manualmente.",
               complexity,

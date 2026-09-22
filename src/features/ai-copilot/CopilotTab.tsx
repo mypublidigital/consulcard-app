@@ -10,6 +10,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { DATA_PROTOCOL, PROMPTS, withDataProtocol } from "@/mocks/prompts";
 import { COPILOT_INITIAL_MESSAGES } from "@/mocks/copilot";
 import { sendChatMessage, type ChatMessage } from "@/lib/chat";
+import { appendCopilotExchange, loadCopilotHistory } from "@/lib/copilot-history";
 import type { Project, ProjectPhase, PromptDef } from "@/types";
 
 interface Message {
@@ -38,6 +39,26 @@ export function CopilotTab({ project }: { project: Project }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const currentPhase: ProjectPhase = "execucao";
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  // Carrega o histórico gravado do projeto (itens 1 e 12). A saudação inicial
+  // só aparece em projeto sem conversa e não é gravada.
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryLoading(true);
+    loadCopilotHistory(project.id)
+      .then((saved) => {
+        if (!cancelled) setMessages(saved.length > 0 ? saved : COPILOT_INITIAL_MESSAGES);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setMessages(COPILOT_INITIAL_MESSAGES);
+          setError(`Não foi possível carregar o histórico: ${err instanceof Error ? err.message : err}`);
+        }
+      })
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [project.id]);
 
   // Campo cresce com o texto até ~10 linhas e passa a rolar (item 11).
   useEffect(() => {
@@ -89,13 +110,24 @@ export function CopilotTab({ project }: { project: Project }) {
     setLoading(true);
     setError("");
 
+    const askedAt = new Date();
     try {
-      const reply = await sendChatMessage(history, {
+      // A saudação inicial é do app, não da conversa: a API espera que a
+      // conversa comece por uma mensagem do usuário.
+      const apiHistory = history.slice(history.findIndex((m) => m.role === "user"));
+      const reply = await sendChatMessage(apiHistory, {
         agentType: "copilot",
         projectContext,
         tier: prompt?.tier,
       });
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
+
+      if (currentUser?.id) {
+        appendCopilotExchange(project.id, currentUser.id, { content, at: askedAt }, { content: reply, at: new Date() })
+          .catch((e) =>
+            setError(`A resposta chegou, mas não foi salva no histórico: ${e instanceof Error ? e.message : e}`)
+          );
+      }
     } catch (err) {
       // Tira a mensagem que falhou do histórico e devolve o texto ao campo.
       // Antes ela ficava presa e era reenviada em toda tentativa seguinte.
@@ -113,25 +145,14 @@ export function CopilotTab({ project }: { project: Project }) {
     if (!file) return;
 
     const text = await file.text().catch(() => "");
-    const content = text
-      ? `Transcrição de reunião — **${file.name}**:\n\n${text.slice(0, 8000)}`
-      : `Upload de transcrição: **${file.name}** (conteúdo não legível)`;
-
-    const userMsg: ChatMessage = { role: "user", content };
-    const history = [...messages, userMsg];
-    setMessages(history);
-    setLoading(true);
-    setError("");
-
-    try {
-      const reply = await sendChatMessage(history, { agentType: "copilot", projectContext });
-      setMessages((m) => [...m, { role: "assistant", content: reply }]);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao processar transcrição.");
-    } finally {
-      setLoading(false);
-      if (fileRef.current) fileRef.current.value = "";
+    if (fileRef.current) fileRef.current.value = "";
+    if (!text) {
+      setError(`Não foi possível ler "${file.name}".`);
+      return;
     }
+    // Mesmo caminho do envio normal: grava no histórico e devolve o texto ao
+    // campo se falhar. (Leitura de .docx e divisão de transcrições longas: Fase 4.)
+    await send(`Transcrição de reunião — ${file.name}:\n\n${text.slice(0, 8000)}`);
   }
 
   return (
@@ -147,9 +168,13 @@ export function CopilotTab({ project }: { project: Project }) {
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
-          {messages.map((m, i) => (
-            <MessageBubble key={i} message={m} />
-          ))}
+          {historyLoading ? (
+            <div className="flex items-center gap-2 text-xs text-text-faint">
+              <Loader2 size={12} className="animate-spin" /> Carregando histórico do projeto...
+            </div>
+          ) : (
+            messages.map((m, i) => <MessageBubble key={i} message={m} />)
+          )}
           {loading && (
             <div className="flex items-start gap-3">
               <div className="h-7 w-7 rounded-full bg-brand-primary/10 text-brand-primary flex items-center justify-center">

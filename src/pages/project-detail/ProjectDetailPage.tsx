@@ -46,6 +46,8 @@ export function ProjectDetailPage() {
   const project = useProjectsStore((s) => s.projects.find((p) => p.id === id));
   const activities = useProjectsStore((s) => (id ? s.activitiesByProject[id] ?? [] : []));
   const setStatus = useProjectsStore((s) => s.setProjectStatus);
+  const syncError = useProjectsStore((s) => s.syncError);
+  const clearSyncError = useProjectsStore((s) => s.clearSyncError);
   const [tab, setTab] = useState<TabId>("activities");
   const [showEdit, setShowEdit] = useState(false);
 
@@ -76,6 +78,12 @@ export function ProjectDetailPage() {
   return (
     <PageWrapper fullWidth>
       <div className="max-w-[1440px] mx-auto px-6 pt-6">
+        {syncError && (
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-md border border-accent-red/30 bg-accent-red/10 px-4 py-3 text-sm text-accent-red">
+            <span>{syncError}</span>
+            <button onClick={clearSyncError} className="shrink-0 text-xs underline">Fechar</button>
+          </div>
+        )}
         {/* Project header */}
         <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
           <div className="flex items-start gap-3">

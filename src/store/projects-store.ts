@@ -12,13 +12,18 @@ interface ProjectsState {
   pendencies: Pendency[];
   loading: boolean;
   initialized: boolean;
+  /** Última falha ao gravar no banco; a tela mostra e oferece fechar. */
+  syncError: string | null;
+  clearSyncError: () => void;
   fetchProjects: () => Promise<void>;
   addProject: (p: Project, typeId: string) => Promise<void>;
-  updateActivityStatus: (projectId: string, activityId: string, status: ActivityStatusValue) => void;
-  addActivity: (projectId: string, activity: Activity) => void;
-  addPendency: (p: Pendency) => void;
-  resolvePendency: (id: string) => void;
-  updatePendency: (id: string, patch: Partial<Pendency>) => void;
+  updateActivityStatus: (projectId: string, activityId: string, status: ActivityStatusValue) => Promise<void>;
+  addActivity: (projectId: string, activity: Activity) => Promise<void>;
+  addPendency: (p: Pendency) => Promise<void>;
+  resolvePendency: (id: string) => Promise<void>;
+  /** Volta uma pendência resolvida para aberta (item 6). */
+  reopenPendency: (id: string) => Promise<void>;
+  updatePendency: (id: string, patch: Partial<Pendency>) => Promise<void>;
   setProjectStatus: (projectId: string, status: Project["status"]) => Promise<void>;
   updateProject: (projectId: string, patch: Partial<Project>) => Promise<void>;
 }
@@ -123,12 +128,109 @@ function projectToDbPatch(patch: Partial<Project>): Record<string, unknown> {
   return out;
 }
 
-export const useProjectsStore = create<ProjectsState>((set) => ({
+// ── Atividades e pendências ↔ banco ──────────────────────────────────────────
+// Até aqui estas telas só alteravam memória: nada chegava ao banco, então tudo
+// sumia no recarregar e só quem criava enxergava (itens 5, 6 e 7).
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToActivity(row: any): Activity {
+  return {
+    id: row.id,
+    label: row.label,
+    description: row.description ?? "",
+    complexity: row.complexity,
+    llmImpact: row.llm_impact,
+    llmIndexMin: row.llm_index_min,
+    llmIndexMax: row.llm_index_max,
+    phase: row.phase,
+    status: row.status,
+    assignee: row.assignee ? profileToUser(row.assignee) : undefined,
+    dueDate: row.due_date ?? undefined,
+    pendingCount: row.pending_count ?? 0,
+  };
+}
+
+function activityToRow(projectId: string, a: Activity) {
+  return {
+    id: a.id,
+    project_id: projectId,
+    label: a.label,
+    description: a.description ?? "",
+    complexity: a.complexity,
+    llm_impact: a.llmImpact,
+    llm_index_min: a.llmIndexMin,
+    llm_index_max: a.llmIndexMax,
+    phase: a.phase,
+    status: a.status ?? "todo",
+    assignee_id: a.assignee?.id || null,
+    due_date: a.dueDate || null,
+    pending_count: a.pendingCount ?? 0,
+  };
+}
+
+/**
+ * Atividades-modelo de um novo projeto. O ID leva o projeto como prefixo: os
+ * modelos usam IDs fixos ("a1", "a2"...) iguais entre projetos do mesmo tipo,
+ * e a coluna activities.id é chave primária — sem o prefixo, o segundo projeto
+ * do mesmo tipo colidiria. Mesmo formato do backfill (migração 0006).
+ */
+function templateActivities(projectId: string, typeId: string, startDate: string): Activity[] {
+  return getActivitiesForType(typeId).map((a, idx) => {
+    const due = new Date(startDate);
+    due.setDate(due.getDate() + (idx + 1) * 14);
+    return {
+      ...a,
+      id: `${projectId}__${a.id}`,
+      status: "todo" as ActivityStatusValue,
+      dueDate: Number.isNaN(due.getTime()) ? undefined : due.toISOString().slice(0, 10),
+      pendingCount: 0,
+    };
+  });
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToPendency(row: any): Pendency {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    description: row.description,
+    // Cliente não tem perfil: o nome fica gravado na própria pendência.
+    owner: row.owner ? profileToUser(row.owner) : { name: row.owner_name, initials: row.owner_initials },
+    ownerType: row.owner_type,
+    dueDate: row.due_date,
+    origin: row.origin,
+    status: row.status,
+  };
+}
+
+function pendencyToRow(p: Pendency) {
+  const owner = p.owner as Partial<User>;
+  return {
+    id: p.id,
+    project_id: p.projectId,
+    description: p.description,
+    owner_id: p.ownerType === "consultant" ? owner.id ?? null : null,
+    owner_name: p.owner.name,
+    owner_initials: p.owner.initials,
+    owner_type: p.ownerType,
+    due_date: p.dueDate,
+    origin: p.origin,
+    status: p.status,
+  };
+}
+
+function describeError(action: string, err: { message?: string } | null): string {
+  return `Não foi possível ${action}: ${err?.message ?? "erro desconhecido"}. A alteração foi desfeita.`;
+}
+
+export const useProjectsStore = create<ProjectsState>((set, get) => ({
   projects: MOCK_PROJECTS,
   activitiesByProject: seedActivities(),
   pendencies: MOCK_PENDENCIES,
   loading: false,
   initialized: false,
+  syncError: null,
+  clearSyncError: () => set({ syncError: null }),
 
   fetchProjects: async () => {
     set({ loading: true });
@@ -149,23 +251,48 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
       return;
     }
 
-    if (data && data.length > 0) {
-      set({ projects: data.map(rowToProject), loading: false, initialized: true });
-    } else {
-      // Empty DB → keep mock projects as demo data
+    if (!data || data.length === 0) {
+      // Banco vazio → mantém os projetos de demonstração em memória.
       set({ loading: false, initialized: true });
+      return;
     }
+
+    const [acts, pends] = await Promise.all([
+      supabase
+        .from("activities")
+        .select(`*, assignee:profiles!activities_assignee_id_fkey(${PROFILE_COLUMNS})`)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("pendencies")
+        .select(`*, owner:profiles!pendencies_owner_id_fkey(${PROFILE_COLUMNS})`)
+        .order("created_at", { ascending: false }),
+    ]);
+    if (acts.error) console.error("[activities] fetch error:", acts.error);
+    if (pends.error) console.error("[pendencies] fetch error:", pends.error);
+
+    // Com o banco populado, atividades e pendências vêm só dele — nunca do mock,
+    // que usava usuários fictícios.
+    const activitiesByProject: Record<string, Activity[]> = {};
+    for (const row of acts.data ?? []) {
+      (activitiesByProject[row.project_id] ??= []).push(rowToActivity(row));
+    }
+
+    set({
+      projects: data.map(rowToProject),
+      activitiesByProject,
+      pendencies: (pends.data ?? []).map(rowToPendency),
+      loading: false,
+      initialized: true,
+    });
   },
 
   addProject: async (p, typeId) => {
+    const acts = templateActivities(p.id, typeId, p.startDate);
     // Optimistic update
-    set((s) => {
-      const acts = getActivitiesForType(typeId).map((a) => ({ ...a, status: "todo" as ActivityStatusValue }));
-      return {
-        projects: [p, ...s.projects],
-        activitiesByProject: { ...s.activitiesByProject, [p.id]: acts },
-      };
-    });
+    set((s) => ({
+      projects: [p, ...s.projects],
+      activitiesByProject: { ...s.activitiesByProject, [p.id]: acts },
+    }));
 
     // Persist to Supabase
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -191,6 +318,10 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
     });
     if (projErr) {
       console.error("[projects] insert error:", projErr);
+      set((s) => ({
+        projects: s.projects.filter((x) => x.id !== p.id),
+        syncError: describeError("criar o projeto", projErr),
+      }));
       return;
     }
     if (p.consultants.length > 0) {
@@ -199,30 +330,88 @@ export const useProjectsStore = create<ProjectsState>((set) => ({
         p.consultants.map((c) => ({ project_id: p.id, profile_id: c.id }))
       );
     }
+    if (acts.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: actErr } = await (supabase.from("activities") as any).insert(
+        acts.map((a) => activityToRow(p.id, a))
+      );
+      if (actErr) {
+        console.error("[activities] insert error:", actErr);
+        set({ syncError: describeError("gravar as atividades do projeto", actErr) });
+      }
+    }
   },
 
-  updateActivityStatus: (projectId, activityId, status) =>
-    set((s) => {
-      const list = s.activitiesByProject[projectId] ?? [];
-      const updated = list.map((a) => (a.id === activityId ? { ...a, status } : a));
-      return { activitiesByProject: { ...s.activitiesByProject, [projectId]: updated } };
-    }),
-
-  addActivity: (projectId, activity) =>
-    set((s) => {
-      const list = s.activitiesByProject[projectId] ?? [];
-      return { activitiesByProject: { ...s.activitiesByProject, [projectId]: [...list, activity] } };
-    }),
-
-  addPendency: (p) => set((s) => ({ pendencies: [p, ...s.pendencies] })),
-
-  resolvePendency: (id) =>
+  updateActivityStatus: async (projectId, activityId, status) => {
+    const before = get().activitiesByProject[projectId] ?? [];
     set((s) => ({
-      pendencies: s.pendencies.map((p) => (p.id === id ? { ...p, status: "resolved" } : p)),
-    })),
+      activitiesByProject: {
+        ...s.activitiesByProject,
+        [projectId]: before.map((a) => (a.id === activityId ? { ...a, status } : a)),
+      },
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from("activities") as any).update({ status }).eq("id", activityId);
+    if (error) {
+      set((s) => ({
+        activitiesByProject: { ...s.activitiesByProject, [projectId]: before },
+        syncError: describeError("mover a atividade", error),
+      }));
+    }
+  },
 
-  updatePendency: (id, patch) =>
-    set((s) => ({ pendencies: s.pendencies.map((p) => (p.id === id ? { ...p, ...patch } : p)) })),
+  addActivity: async (projectId, activity) => {
+    set((s) => ({
+      activitiesByProject: {
+        ...s.activitiesByProject,
+        [projectId]: [...(s.activitiesByProject[projectId] ?? []), activity],
+      },
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from("activities") as any).insert(activityToRow(projectId, activity));
+    if (error) {
+      set((s) => ({
+        activitiesByProject: {
+          ...s.activitiesByProject,
+          [projectId]: (s.activitiesByProject[projectId] ?? []).filter((a) => a.id !== activity.id),
+        },
+        syncError: describeError("criar a atividade", error),
+      }));
+    }
+  },
+
+  addPendency: async (p) => {
+    set((s) => ({ pendencies: [p, ...s.pendencies] }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from("pendencies") as any).insert(pendencyToRow(p));
+    if (error) {
+      set((s) => ({
+        pendencies: s.pendencies.filter((x) => x.id !== p.id),
+        syncError: describeError("criar a pendência", error),
+      }));
+    }
+  },
+
+  resolvePendency: (id) => get().updatePendency(id, { status: "resolved" }),
+
+  reopenPendency: (id) => get().updatePendency(id, { status: "open" }),
+
+  updatePendency: async (id, patch) => {
+    const before = get().pendencies;
+    set({ pendencies: before.map((p) => (p.id === id ? { ...p, ...patch } : p)) });
+
+    const row: Record<string, unknown> = {};
+    if (patch.status !== undefined) row.status = patch.status;
+    if (patch.description !== undefined) row.description = patch.description;
+    if (patch.dueDate !== undefined) row.due_date = patch.dueDate;
+    if (Object.keys(row).length === 0) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (supabase.from("pendencies") as any).update(row).eq("id", id);
+    if (error) {
+      set({ pendencies: before, syncError: describeError("atualizar a pendência", error) });
+    }
+  },
 
   setProjectStatus: async (projectId, status) => {
     set((s) => ({

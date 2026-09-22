@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Check } from "lucide-react";
+import { Plus, Check, RotateCcw } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -16,6 +16,7 @@ export function PendenciesTab({ projectId }: { projectId: string }) {
   const list = all.filter((p) => p.projectId === projectId);
   const add = useProjectsStore((s) => s.addPendency);
   const resolve = useProjectsStore((s) => s.resolvePendency);
+  const reopen = useProjectsStore((s) => s.reopenPendency);
   const [showAdd, setShowAdd] = useState(false);
   const [filter, setFilter] = useState<"all" | "open" | "resolved">("all");
 
@@ -83,9 +84,14 @@ export function PendenciesTab({ projectId }: { projectId: string }) {
                       </Badge>
                     </td>
                     <td className="px-5 py-3 text-right">
-                      {p.status === "open" && (
+                      {p.status === "open" ? (
                         <Button size="sm" variant="ghost" leftIcon={<Check size={12} />} onClick={() => resolve(p.id)}>
                           Resolver
+                        </Button>
+                      ) : (
+                        // Antes não havia caminho de volta: resolvida por engano ficava resolvida (item 6).
+                        <Button size="sm" variant="ghost" leftIcon={<RotateCcw size={12} />} onClick={() => reopen(p.id)}>
+                          Reabrir
                         </Button>
                       )}
                     </td>
@@ -174,7 +180,7 @@ function AddPendencyForm({
               ? activeUsers.find((u) => u.id === ownerId)!
               : { name: clientName || "Cliente", initials: (clientName || "CL").slice(0, 2).toUpperCase() };
             onSubmit({
-              id: "pd-" + Math.random().toString(36).slice(2, 7),
+              id: crypto.randomUUID(),
               projectId,
               description,
               owner,
