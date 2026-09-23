@@ -157,7 +157,7 @@ export function ProjectDetailPage() {
               disabled={!canEdit}
               className={cn(
                 "h-9 w-9 rounded-md flex items-center justify-center",
-                canEdit ? "hover:bg-[#F0EDE6] text-text-muted" : "text-text-faint/40 cursor-not-allowed"
+                canEdit ? "hover:bg-[#EDEEEF] text-text-muted" : "text-text-faint/40 cursor-not-allowed"
               )}
               aria-label="Editar projeto"
               title={canEdit ? "Editar projeto" : SEM_PERMISSAO_TITULO}

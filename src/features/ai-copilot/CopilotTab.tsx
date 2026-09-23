@@ -542,7 +542,7 @@ export function CopilotTab({
                         "rounded-full px-2 py-1 text-[10px] font-medium",
                         active && "bg-brand-primary text-white",
                         !active && reached && "bg-brand-primary/10 text-brand-primary",
-                        !reached && "bg-[#F0EDE6] text-text-faint"
+                        !reached && "bg-[#EDEEEF] text-text-faint"
                       )}
                     >
                       {p.label}
@@ -700,7 +700,7 @@ const MessageBubble = memo(function MessageBubble({
                   table: ({ children }) => <table className="w-full text-xs border-collapse my-2">{children}</table>,
                   th: ({ children }) => <th className="border border-border bg-surface px-2 py-1 text-left font-medium">{children}</th>,
                   td: ({ children }) => <td className="border border-border px-2 py-1">{children}</td>,
-                  code: ({ children }) => <code className="font-mono bg-[#F0EDE6] px-1 py-0.5 rounded text-[11px]">{children}</code>,
+                  code: ({ children }) => <code className="font-mono bg-[#EDEEEF] px-1 py-0.5 rounded text-[11px]">{children}</code>,
                 }}
               >
                 {message.content}

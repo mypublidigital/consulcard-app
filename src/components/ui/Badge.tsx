@@ -9,9 +9,9 @@ interface Props extends HTMLAttributes<HTMLSpanElement> {
 }
 
 const tones: Record<Tone, string> = {
-  neutral: "bg-[#F0EDE6] text-text-muted",
-  blue: "bg-[#1A3A8F]/10 text-[#1A3A8F]",
-  green: "bg-[#0F5C48]/10 text-[#0F5C48]",
+  neutral: "bg-[#EDEEEF] text-text-muted",
+  blue: "bg-[#354454]/10 text-[#354454]",
+  green: "bg-[#5E8E2B]/10 text-[#5E8E2B]",
   amber: "bg-[#92400E]/10 text-[#92400E]",
   red: "bg-[#9B1C1C]/10 text-[#9B1C1C]",
   purple: "bg-[#6D28D9]/10 text-[#6D28D9]",

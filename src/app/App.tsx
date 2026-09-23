@@ -17,7 +17,7 @@ import { useProjectsStore } from "@/store/projects-store";
 // Full-screen loading spinner shown while Supabase restores the session
 function LoadingScreen() {
   return (
-    <div className="min-h-screen bg-[#F4F2EE] flex items-center justify-center">
+    <div className="min-h-screen bg-[#F5F6F7] flex items-center justify-center">
       <div className="flex flex-col items-center gap-4">
         <div className="h-11 w-11 rounded-xl bg-brand-primary flex items-center justify-center font-bold text-white text-lg shadow-lg animate-pulse">
           C

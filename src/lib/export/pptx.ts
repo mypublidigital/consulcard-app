@@ -1,12 +1,19 @@
 import type { StatusReportData } from "@/features/status-report/report-data";
 import { extractSummarySection, factualSummary } from "@/features/status-report/report-data";
+import { CONSULCARD_LOGO_PNG, CONSULCARD_LOGO_RATIO as LOGO_RATIO } from "./brand-logo";
 
-const BRAND = "1A3A8F";
-const INK = "1F1E1C";
-const MUTED = "5B5A56";
-const FAINT = "8A8883";
-const LINE = "D8D4CC";
-const SOFT = "F4F2EE";
+// Manual de Uso de Marca Consulcard v1c: Azul rgb(53,68,84) e Verde
+// rgb(141,198,63); cinzas de apoio rgb(209,211,212) e rgb(87,87,86).
+const BRAND = "354454"; // Azul Consulcard
+const GREEN = "8DC63F"; // Verde Consulcard
+const INK = "354454";
+const MUTED = "575756";
+const FAINT = "9A9A99";
+const LINE = "D1D3D4";
+const SOFT = "F5F6F7";
+// O manual permite Arial quando não for possível usar Roboto — caso do
+// PowerPoint, que depende da fonte instalada em quem abre o arquivo.
+const FONT = "Arial";
 
 /**
  * Status Report em PowerPoint (item 13). Biblioteca carregada só na hora do uso.
@@ -16,6 +23,7 @@ export async function statusReportToPptxBlob(d: StatusReportData, aiMarkdown?: s
   const { default: PptxGenJS } = await import("pptxgenjs");
   const pres = new PptxGenJS();
   pres.layout = "LAYOUT_WIDE"; // 13,33" × 7,5"
+  pres.theme = { headFontFace: FONT, bodyFontFace: FONT };
   pres.title = `Status Report — ${d.projectName}`;
   pres.company = "Consulcard";
 
@@ -25,7 +33,7 @@ export async function statusReportToPptxBlob(d: StatusReportData, aiMarkdown?: s
     slide.addText(String(n), { x: W - 1.0, y: 7.0, w: 0.5, h: 0.3, fontSize: 9, color: FAINT, align: "right" });
   };
   const heading = (slide: ReturnType<typeof pres.addSlide>, title: string) => {
-    slide.addShape(pres.ShapeType.rect, { x: 0, y: 0, w: W, h: 0.12, fill: { color: BRAND } });
+    slide.addShape(pres.ShapeType.rect, { x: 0, y: 0, w: W, h: 0.12, fill: { color: GREEN } });
     slide.addText(title, { x: 0.5, y: 0.35, w: W - 1, h: 0.6, fontSize: 24, bold: true, color: INK });
   };
   // Tabela com cabeçalho estilizado; quebra em várias páginas se precisar.
@@ -39,14 +47,17 @@ export async function statusReportToPptxBlob(d: StatusReportData, aiMarkdown?: s
     );
   };
 
-  // 1 · Capa
+  // 1 · Capa — fundo Azul Consulcard com a logo sobre placa branca, como manda
+  // o manual para fundos escuros (seções 6 e 7).
   const cover = pres.addSlide();
   cover.background = { color: BRAND };
-  cover.addText("STATUS REPORT", { x: 0.8, y: 2.0, w: 11, h: 0.5, fontSize: 16, bold: true, color: "C9D3F0", charSpacing: 4 });
+  cover.addShape(pres.ShapeType.rect, { x: 0.8, y: 0.7, w: 3.4, h: 1.0, fill: { color: "FFFFFF" } });
+  cover.addImage({ data: CONSULCARD_LOGO_PNG, x: 1.0, y: 0.95, w: 3.0, h: 3.0 / LOGO_RATIO });
+  cover.addText("STATUS REPORT", { x: 0.8, y: 2.0, w: 11, h: 0.5, fontSize: 16, bold: true, color: GREEN, charSpacing: 4, fontFace: FONT });
   cover.addText(d.projectName, { x: 0.8, y: 2.6, w: 11.5, h: 1.2, fontSize: 40, bold: true, color: "FFFFFF" });
   cover.addText(`Cliente: ${d.client}`, { x: 0.8, y: 3.9, w: 11, h: 0.5, fontSize: 18, color: "FFFFFF" });
   cover.addText(`Referência: ${d.referenceDate}  ·  Gerente: ${d.manager}  ·  Período: ${d.period}`, {
-    x: 0.8, y: 4.5, w: 11.5, h: 0.4, fontSize: 13, color: "C9D3F0",
+    x: 0.8, y: 4.5, w: 11.5, h: 0.4, fontSize: 13, color: GREEN,
   });
 
   // 2 · Resumo e números

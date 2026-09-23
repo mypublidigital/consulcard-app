@@ -450,7 +450,7 @@ function Step2({
             {form.tags.map((t) => (
               <span
                 key={t}
-                className="inline-flex items-center gap-1 rounded-full bg-[#F0EDE6] px-2 py-0.5 text-[11px] text-text-muted"
+                className="inline-flex items-center gap-1 rounded-full bg-[#EDEEEF] px-2 py-0.5 text-[11px] text-text-muted"
               >
                 {t}
                 <button

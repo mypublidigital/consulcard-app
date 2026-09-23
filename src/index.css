@@ -14,15 +14,15 @@ body,
 
 body {
   margin: 0;
-  font-family: "DM Sans", "Inter", system-ui, sans-serif;
-  background-color: #fafaf8;
-  color: #1c1917;
+  font-family: "Roboto", Arial, system-ui, sans-serif;
+  background-color: #f5f6f7;
+  color: #354454;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
 * {
-  border-color: #e4e0d9;
+  border-color: #d1d3d4;
 }
 
 /* Scrollbar */
@@ -34,11 +34,11 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #d6d3cd;
+  background: #d1d3d4;
   border-radius: 6px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #a8a29e;
+  background: #9a9a99;
 }
 
 @keyframes pulse-soft {

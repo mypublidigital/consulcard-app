@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { useUsersStore } from "@/store/users-store";
 
 const COLUMNS: { id: ActivityStatusValue; label: string; tone: string; dot: string }[] = [
-  { id: "todo", label: "A fazer", tone: "bg-[#F0EDE6] text-text-muted", dot: "bg-text-faint" },
+  { id: "todo", label: "A fazer", tone: "bg-[#EDEEEF] text-text-muted", dot: "bg-text-faint" },
   { id: "in_progress", label: "Em andamento", tone: "bg-brand-primary/10 text-brand-primary", dot: "bg-brand-primary" },
   { id: "review", label: "Em revisão", tone: "bg-accent-amber/10 text-accent-amber", dot: "bg-accent-amber" },
   { id: "done", label: "Concluída", tone: "bg-accent-green/10 text-accent-green", dot: "bg-accent-green" },

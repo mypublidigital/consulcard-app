@@ -200,7 +200,7 @@ function Checkbox({
         type="checkbox"
         checked={checked}
         onChange={onChange}
-        className="h-3.5 w-3.5 rounded border-border accent-[#1A3A8F]"
+        className="h-3.5 w-3.5 rounded border-border accent-[#354454]"
       />
       <span className={checked ? "text-text-primary font-medium" : "text-text-muted"}>{label}</span>
     </label>

@@ -18,7 +18,7 @@ export function ProgressBar({
     amber: "bg-accent-amber",
   };
   return (
-    <div className={cn("w-full overflow-hidden rounded-full bg-[#EFEBE3]", heights[size], className)}>
+    <div className={cn("w-full overflow-hidden rounded-full bg-[#E6E7E8]", heights[size], className)}>
       <div
         className={cn("h-full rounded-full transition-all", tones[tone])}
         style={{ width: `${Math.min(100, Math.max(0, value))}%` }}

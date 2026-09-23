@@ -20,7 +20,7 @@ const ICON_TONES: Record<Document["type"], string> = {
   cronograma: "bg-accent-green/10 text-accent-green",
   report: "bg-accent-amber/10 text-accent-amber",
   entregavel: "bg-[#6D28D9]/10 text-[#6D28D9]",
-  outro: "bg-[#F0EDE6] text-text-muted",
+  outro: "bg-[#EDEEEF] text-text-muted",
 };
 
 export function DocumentsTab({ projectId }: { projectId: string }) {

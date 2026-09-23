@@ -43,16 +43,14 @@ export function ClientPortalPage() {
   const clientPendencies = pendencies.filter((p) => p.ownerType === "client");
 
   return (
-    <div className="min-h-screen bg-[#F7F5EF]">
+    <div className="min-h-screen bg-surface">
       {/* Header */}
       <header className="bg-white border-b border-border">
         <div className="max-w-4xl mx-auto px-6 py-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-md bg-brand-primary text-white flex items-center justify-center font-bold">
-              C
-            </div>
-            <div>
-              <div className="text-lg font-semibold text-text-primary">Consulcard</div>
+            {/* Tela voltada ao cliente: versão primária horizontal (manual, seção 1). */}
+            <img src="/brand/consulcard-horizontal.png" alt="Consulcard" className="h-9 w-auto" />
+            <div className="border-l border-border pl-3">
               <div className="text-xs text-text-muted">Acompanhamento de Projeto</div>
             </div>
           </div>

@@ -67,11 +67,11 @@ export const PROJECT_TYPES: MacroCategory[] = [
 ];
 
 export const MACRO_COLOR_CLASSES: Record<MacroCategory["color"], { bg: string; text: string; border: string; soft: string }> = {
-  blue:   { bg: "bg-[#1A3A8F]",    text: "text-[#1A3A8F]",    border: "border-[#1A3A8F]",    soft: "bg-[#1A3A8F]/10" },
+  blue:   { bg: "bg-[#354454]",    text: "text-[#354454]",    border: "border-[#354454]",    soft: "bg-[#354454]/10" },
   purple: { bg: "bg-[#6D28D9]",    text: "text-[#6D28D9]",    border: "border-[#6D28D9]",    soft: "bg-[#6D28D9]/10" },
   teal:   { bg: "bg-[#0E7C7B]",    text: "text-[#0E7C7B]",    border: "border-[#0E7C7B]",    soft: "bg-[#0E7C7B]/10" },
   amber:  { bg: "bg-[#92400E]",    text: "text-[#92400E]",    border: "border-[#92400E]",    soft: "bg-[#92400E]/10" },
-  green:  { bg: "bg-[#0F5C48]",    text: "text-[#0F5C48]",    border: "border-[#0F5C48]",    soft: "bg-[#0F5C48]/10" },
+  green:  { bg: "bg-[#5E8E2B]",    text: "text-[#5E8E2B]",    border: "border-[#5E8E2B]",    soft: "bg-[#5E8E2B]/10" },
   red:    { bg: "bg-[#9B1C1C]",    text: "text-[#9B1C1C]",    border: "border-[#9B1C1C]",    soft: "bg-[#9B1C1C]/10" },
 };
 

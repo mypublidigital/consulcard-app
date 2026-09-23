@@ -29,9 +29,13 @@ export function Sidebar() {
     <aside className="hidden md:flex flex-col w-[240px] shrink-0 h-screen bg-sidebar text-white">
       <div className="px-5 py-5">
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-md bg-brand-primary flex items-center justify-center font-bold text-sm">
-            C
-          </div>
+          {/* Fundo escuro: manual de marca (seções 6 e 7) pede a versão sobre
+              fundo branco quando não há contraste com a logo colorida. */}
+          <img
+            src="/brand/consulcard-icone-circular.jpg"
+            alt="Consulcard"
+            className="h-9 w-9 rounded-full object-cover bg-white"
+          />
           <div>
             <div className="text-sm font-semibold tracking-wide">Consulcard</div>
             <div className="text-[10px] text-white/50 font-mono">v0.1 · interno</div>

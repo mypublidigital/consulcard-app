@@ -70,7 +70,7 @@ export function Topbar() {
           </Link>
           <button
             aria-label="Notificações"
-            className="relative h-9 w-9 rounded-md hover:bg-[#F0EDE6] flex items-center justify-center text-text-muted"
+            className="relative h-9 w-9 rounded-md hover:bg-[#EDEEEF] flex items-center justify-center text-text-muted"
           >
             <Bell size={16} />
             <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-accent-red" />

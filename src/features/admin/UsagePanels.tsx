@@ -58,7 +58,7 @@ export function TopQuestions() {
                   </div>
                 </div>
               </div>
-              <div className="mt-2 h-0.5 rounded-full bg-[#EFEBE3] overflow-hidden">
+              <div className="mt-2 h-0.5 rounded-full bg-[#E6E7E8] overflow-hidden">
                 <div
                   className="h-full bg-brand-primary/40"
                   style={{ width: `${(q.count / maxCount) * 100}%` }}

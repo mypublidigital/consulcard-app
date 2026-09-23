@@ -116,7 +116,7 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
             </p>
             <button
               onClick={onClose}
-              className="w-full rounded-lg bg-brand-primary text-white py-2.5 text-sm font-medium hover:bg-[#162E73] transition-colors"
+              className="w-full rounded-lg bg-brand-primary text-white py-2.5 text-sm font-medium hover:bg-[#243140] transition-colors"
             >
               Voltar ao login
             </button>
@@ -168,7 +168,7 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
 
               <button
                 onClick={handleSend}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-primary text-white py-2.5 text-sm font-medium hover:bg-[#162E73] transition-colors"
+                className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-primary text-white py-2.5 text-sm font-medium hover:bg-[#243140] transition-colors"
               >
                 <Send size={14} />
                 Enviar instruções
@@ -222,7 +222,7 @@ export function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F4F2EE] flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-[#F5F6F7] flex flex-col items-center justify-center p-4">
       {/* Background pattern */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full bg-brand-primary/5 blur-3xl" />
@@ -232,15 +232,13 @@ export function LoginPage() {
       <div className="relative w-full max-w-sm">
         {/* Logo card */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 mb-3">
-            <div className="h-11 w-11 rounded-xl bg-brand-primary flex items-center justify-center font-bold text-white text-lg shadow-lg">
-              C
-            </div>
-            <div className="text-left">
-              <div className="text-xl font-bold text-text-primary tracking-tight">Consulcard</div>
-              <div className="text-[11px] text-text-faint font-mono">Gestão de Projetos · v0.1</div>
-            </div>
-          </div>
+          {/* Versão primária horizontal sobre fundo claro (manual, seção 1). */}
+          <img
+            src="/brand/consulcard-horizontal.png"
+            alt="Consulcard"
+            className="mx-auto mb-2 h-12 w-auto"
+          />
+          <div className="text-[11px] text-text-faint font-mono mb-3">Gestão de Projetos · v0.1</div>
           <p className="text-sm text-text-muted">Faça login para continuar</p>
         </div>
 
@@ -336,7 +334,7 @@ export function LoginPage() {
                 "w-full flex items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-semibold transition-all",
                 loading
                   ? "bg-brand-primary/60 text-white/80 cursor-not-allowed"
-                  : "bg-brand-primary text-white hover:bg-[#162E73] shadow-sm hover:shadow-md"
+                  : "bg-brand-primary text-white hover:bg-[#243140] shadow-sm hover:shadow-md"
               )}
             >
               {loading ? (

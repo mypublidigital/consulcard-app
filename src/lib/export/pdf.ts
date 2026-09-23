@@ -1,4 +1,5 @@
 import { AI_NOTICE, DATA_NOTICE, type Block, type DocModel, type Run } from "./blocks";
+import { CONSULCARD_LOGO_PNG } from "./brand-logo";
 
 /**
  * A fonte embutida no pdfmake (Roboto) não tem alguns símbolos comuns nas
@@ -25,7 +26,7 @@ function runs(rs: Run[]): Node[] {
     text: pdfSafe(r.text),
     bold: r.bold || undefined,
     italics: r.italic || undefined,
-    ...(r.code ? { font: "Roboto", background: "#F0EDE6", fontSize: 9 } : {}),
+    ...(r.code ? { font: "Roboto", background: "#EDEEEF", fontSize: 9 } : {}),
   }));
 }
 
@@ -43,20 +44,20 @@ function block(b: Block): Node {
           headerRows: 1,
           widths: b.header.map(() => "*"),
           body: [
-            b.header.map((c) => ({ text: runs(c), bold: true, fillColor: "#F4F2EE" })),
+            b.header.map((c) => ({ text: runs(c), bold: true, fillColor: "#F5F6F7" })),
             ...b.rows.map((r) => r.map((c) => ({ text: runs(c) }))),
           ],
         },
-        layout: { hLineColor: "#D8D4CC", vLineColor: "#D8D4CC" },
+        layout: { hLineColor: "#D1D3D4", vLineColor: "#D1D3D4" },
         fontSize: 9,
         margin: [0, 2, 0, 8],
       };
     case "code":
-      return { text: pdfSafe(b.text), fontSize: 8, background: "#F4F2EE", margin: [0, 2, 0, 8], preserveLeadingSpaces: true };
+      return { text: pdfSafe(b.text), fontSize: 8, background: "#F5F6F7", margin: [0, 2, 0, 8], preserveLeadingSpaces: true };
     case "quote":
-      return { text: runs(b.runs), italics: true, color: "#5B5A56", margin: [12, 0, 0, 6] };
+      return { text: runs(b.runs), italics: true, color: "#575756", margin: [12, 0, 0, 6] };
     case "hr":
-      return { canvas: [{ type: "line", x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 0.5, lineColor: "#D8D4CC" }], margin: [0, 6, 0, 6] };
+      return { canvas: [{ type: "line", x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 0.5, lineColor: "#D1D3D4" }], margin: [0, 6, 0, 6] };
   }
 }
 
@@ -74,19 +75,20 @@ export async function docToPdfBlob(doc: DocModel): Promise<Blob> {
       pageSize: "A4",
       pageMargins: [40, 50, 40, 50],
       info: { title: pdfSafe(doc.title), creator: "Consulcard" },
-      defaultStyle: { font: "Roboto", fontSize: 10, lineHeight: 1.25, color: "#1F1E1C" },
+      defaultStyle: { font: "Roboto", fontSize: 10, lineHeight: 1.25, color: "#354454" },
       styles: {
         title: { fontSize: 18, bold: true, margin: [0, 0, 0, 2] },
-        subtitle: { fontSize: 10, color: "#5B5A56", margin: [0, 0, 0, 14] },
+        subtitle: { fontSize: 10, color: "#575756", margin: [0, 0, 0, 14] },
         h1: { fontSize: 14, bold: true, margin: [0, 10, 0, 4] },
         h2: { fontSize: 12, bold: true, margin: [0, 8, 0, 4] },
-        h3: { fontSize: 10, bold: true, color: "#5B5A56", margin: [0, 6, 0, 3] },
+        h3: { fontSize: 10, bold: true, color: "#575756", margin: [0, 6, 0, 3] },
       },
-      header: { text: "CONSULCARD", fontSize: 7, bold: true, color: "#1A3A8F", margin: [40, 24, 40, 0] },
+      // Logo institucional no cabeçalho (versão primária horizontal).
+      header: { image: CONSULCARD_LOGO_PNG, width: 90, margin: [40, 22, 40, 0] },
       footer: (page: number, count: number) => ({
         columns: [
-          { text: `Gerado em ${today} · ${doc.aiGenerated ? AI_NOTICE : DATA_NOTICE}`, fontSize: 7, color: "#8A8883" },
-          { text: `${page} / ${count}`, alignment: "right", fontSize: 7, color: "#8A8883" },
+          { text: `Gerado em ${today} · ${doc.aiGenerated ? AI_NOTICE : DATA_NOTICE}`, fontSize: 7, color: "#9A9A99" },
+          { text: `${page} / ${count}`, alignment: "right", fontSize: 7, color: "#9A9A99" },
         ],
         margin: [40, 16, 40, 0],
       }),

@@ -12,9 +12,9 @@ interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const variants: Record<Variant, string> = {
-  primary: "bg-brand-primary text-white hover:bg-[#162E73] disabled:bg-text-faint",
-  secondary: "bg-surface text-text-primary border border-border hover:bg-[#F0EDE6]",
-  ghost: "bg-transparent text-text-primary hover:bg-[#F0EDE6]",
+  primary: "bg-brand-primary text-white hover:bg-[#243140] disabled:bg-text-faint",
+  secondary: "bg-surface text-text-primary border border-border hover:bg-[#EDEEEF]",
+  ghost: "bg-transparent text-text-primary hover:bg-[#EDEEEF]",
   outline: "bg-transparent text-brand-primary border border-brand-primary hover:bg-brand-primary/5",
   danger: "bg-accent-red text-white hover:bg-[#7F1414]",
 };

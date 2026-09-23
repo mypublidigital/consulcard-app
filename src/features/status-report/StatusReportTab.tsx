@@ -190,11 +190,9 @@ export function StatusReportTab({ project }: { project: Project }) {
         <div className="p-6 md:p-8 max-w-3xl mx-auto">
           {/* Report header */}
           <div className="border-b border-border pb-5 mb-6">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="h-7 w-7 rounded-md bg-brand-primary text-white flex items-center justify-center font-bold text-xs">
-                C
-              </div>
-              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Consulcard · Status Report</span>
+            <div className="flex items-center gap-3 mb-2">
+              <img src="/brand/consulcard-horizontal.png" alt="Consulcard" className="h-7 w-auto" />
+              <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">Status Report</span>
             </div>
             <h1 className="text-2xl font-semibold text-text-primary mt-2">{project.name}</h1>
             <div className="flex items-center justify-between mt-3 text-xs text-text-muted">

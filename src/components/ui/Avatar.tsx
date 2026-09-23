@@ -17,7 +17,7 @@ const sizes = {
 
 const tones = {
   brand: "bg-brand-primary text-white",
-  neutral: "bg-[#E4E0D9] text-text-primary",
+  neutral: "bg-[#D1D3D4] text-text-primary",
   green: "bg-accent-green text-white",
   amber: "bg-accent-amber text-white",
 };
@@ -47,7 +47,7 @@ export function AvatarStack({ users, max = 3 }: { users: { initials: string; nam
         <Avatar key={i} initials={u.initials} title={u.name} size="sm" tone={i % 2 === 0 ? "brand" : "neutral"} />
       ))}
       {rest > 0 && (
-        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#F0EDE6] text-[10px] font-semibold text-text-muted ring-2 ring-white">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#EDEEEF] text-[10px] font-semibold text-text-muted ring-2 ring-white">
           +{rest}
         </span>
       )}
