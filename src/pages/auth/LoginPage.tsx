@@ -355,7 +355,7 @@ export function LoginPage() {
 
         {/* Footer */}
         <p className="text-center text-[10px] text-text-faint mt-6">
-          © 2025 Consulcard · Uso restrito à equipe interna
+          © {new Date().getFullYear()} Consulcard · Uso restrito à equipe interna
         </p>
       </div>
 
