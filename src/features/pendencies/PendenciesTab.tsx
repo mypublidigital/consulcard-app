@@ -163,7 +163,11 @@ function PendencyDetail({
 }) {
   const [description, setDescription] = useState(pendency.description);
   const [dueDate, setDueDate] = useState(pendency.dueDate);
-  const changed = description.trim() !== pendency.description || dueDate !== pendency.dueDate;
+  const [startDate, setStartDate] = useState(pendency.startDate ?? "");
+  const changed =
+    description.trim() !== pendency.description ||
+    dueDate !== pendency.dueDate ||
+    startDate !== (pendency.startDate ?? "");
 
   return (
     <div className="space-y-4">
@@ -184,9 +188,15 @@ function PendencyDetail({
         <Textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={4} />
       </Field>
 
-      <Field label="Prazo">
-        <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
-      </Field>
+      {/* Período: antes só existia a data final (reunião de 17/09). */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Início (opcional)">
+          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </Field>
+        <Field label="Prazo">
+          <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+        </Field>
+      </div>
 
       <div className="flex flex-wrap justify-between gap-2 pt-1">
         {pendency.status === "open" ? (
@@ -203,7 +213,7 @@ function PendencyDetail({
           <Button
             size="sm"
             disabled={!changed || !description.trim()}
-            onClick={() => onSave({ description: description.trim(), dueDate })}
+            onClick={() => onSave({ description: description.trim(), dueDate, startDate: startDate || undefined })}
           >
             Salvar
           </Button>
@@ -232,6 +242,7 @@ function AddPendencyForm({
   const [ownerId, setOwnerId] = useState("");
   const [clientName, setClientName] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [startDate, setStartDate] = useState("");
 
   useEffect(() => {
     if (!ownerId && activeUsers.length > 0) setOwnerId(activeUsers[0].id);
@@ -263,6 +274,9 @@ function AddPendencyForm({
             <Input value={clientName} onChange={(e) => setClientName(e.target.value)} placeholder="Nome / função" />
           </Field>
         )}
+        <Field label="Início (opcional)">
+          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+        </Field>
         <Field label="Prazo" required>
           <Input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
         </Field>
@@ -281,6 +295,7 @@ function AddPendencyForm({
               description,
               owner,
               ownerType,
+              startDate: startDate || undefined,
               dueDate,
               origin: "manual",
               status: "open",

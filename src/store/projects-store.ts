@@ -197,6 +197,7 @@ function rowToPendency(row: any): Pendency {
     // Cliente não tem perfil: o nome fica gravado na própria pendência.
     owner: row.owner ? profileToUser(row.owner) : { name: row.owner_name, initials: row.owner_initials },
     ownerType: row.owner_type,
+    startDate: row.start_date ?? undefined,
     dueDate: row.due_date,
     origin: row.origin,
     status: row.status,
@@ -213,6 +214,7 @@ function pendencyToRow(p: Pendency) {
     owner_name: p.owner.name,
     owner_initials: p.owner.initials,
     owner_type: p.ownerType,
+    start_date: p.startDate || null,
     due_date: p.dueDate,
     origin: p.origin,
     status: p.status,
@@ -221,6 +223,15 @@ function pendencyToRow(p: Pendency) {
 
 function describeError(action: string, err: { message?: string } | null): string {
   return `Não foi possível ${action}: ${err?.message ?? "erro desconhecido"}. A alteração foi desfeita.`;
+}
+
+const SEM_PERMISSAO =
+  "Você não tem permissão para alterar este projeto — apenas o gerente responsável, um diretor ou um admin. A alteração foi desfeita.";
+
+/** Quem pode editar o projeto (mesma regra da política do banco). */
+export function canEditProject(project: Project | undefined, user: User | null | undefined): boolean {
+  if (!project || !user) return false;
+  return project.manager?.id === user.id || user.systemRole === "admin" || user.systemRole === "diretor";
 }
 
 export const useProjectsStore = create<ProjectsState>((set, get) => ({
@@ -404,6 +415,7 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
     if (patch.status !== undefined) row.status = patch.status;
     if (patch.description !== undefined) row.description = patch.description;
     if (patch.dueDate !== undefined) row.due_date = patch.dueDate;
+    if (patch.startDate !== undefined) row.start_date = patch.startDate || null;
     if (Object.keys(row).length === 0) return;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -414,29 +426,42 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
   },
 
   setProjectStatus: async (projectId, status) => {
-    set((s) => ({
-      projects: s.projects.map((p) => (p.id === projectId ? { ...p, status } : p)),
-    }));
+    const before = get().projects;
+    set({ projects: before.map((p) => (p.id === projectId ? { ...p, status } : p)) });
+    // .select() devolve as linhas alteradas: um UPDATE barrado pela regra de
+    // acesso não dá erro, apenas afeta zero linhas — sem isto a tela mostrava
+    // a mudança e o banco ignorava em silêncio.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase.from("projects") as any).update({ status }).eq("id", projectId);
+    const { data, error } = await (supabase.from("projects") as any)
+      .update({ status }).eq("id", projectId).select("id");
+    if (error || !data?.length) {
+      set({ projects: before, syncError: error ? describeError("mudar o status", error) : SEM_PERMISSAO });
+    }
   },
 
   updateProject: async (projectId, patch) => {
     const today = new Date().toISOString().slice(0, 10);
-    // Optimistic in-memory update
-    set((s) => ({
-      projects: s.projects.map((p) =>
+    // Guardado antes da atualização otimista, para poder desfazer.
+    const projectsBefore = get().projects;
+    set({
+      projects: projectsBefore.map((p) =>
         p.id === projectId ? { ...p, ...patch, lastUpdate: today } : p
       ),
-    }));
+    });
 
     const dbPatch = projectToDbPatch(patch);
     if (Object.keys(dbPatch).length > 0) {
       dbPatch.last_update = today;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase.from("projects") as any).update(dbPatch).eq("id", projectId);
-      if (error) {
-        console.warn("[projects] update returned error (project may be a mock not in DB):", error);
+      const { data, error } = await (supabase.from("projects") as any)
+        .update(dbPatch).eq("id", projectId).select("id");
+      // Zero linhas = regra de acesso barrou (não gera erro no Postgres).
+      if (error || !data?.length) {
+        set({
+          projects: projectsBefore,
+          syncError: error ? describeError("salvar o projeto", error) : SEM_PERMISSAO,
+        });
+        return;
       }
     }
 

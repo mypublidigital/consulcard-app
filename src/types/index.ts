@@ -79,6 +79,8 @@ export interface Pendency {
   description: string;
   owner: User | { name: string; initials: string };
   ownerType: "consultant" | "client";
+  /** Início do período (opcional) — pedido na reunião de 17/09. */
+  startDate?: string;
   dueDate: string;
   origin: "reuniao" | "manual" | "agente";
   status: "open" | "resolved";

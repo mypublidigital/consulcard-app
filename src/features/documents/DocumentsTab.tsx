@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { FileText, FileSpreadsheet, FileBarChart, Plus, ExternalLink, File } from "lucide-react";
+import { useEffect, useState } from "react";
+import { FileText, FileSpreadsheet, FileBarChart, Plus, ExternalLink, File, Loader2, Trash2 } from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { MOCK_DOCUMENTS } from "@/mocks/documents";
+import { createDocument, deleteDocument, listDocuments } from "@/lib/documents";
+import { useAuthStore } from "@/store/auth-store";
 import type { Document } from "@/types";
 
 const ICONS: Record<Document["type"], any> = {
@@ -23,39 +24,80 @@ const ICON_TONES: Record<Document["type"], string> = {
 };
 
 export function DocumentsTab({ projectId }: { projectId: string }) {
-  const [docs, setDocs] = useState<Document[]>(MOCK_DOCUMENTS[projectId] ?? []);
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const [docs, setDocs] = useState<Document[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  function addDoc() {
+  // Documentos agora vêm do banco (migração 0007): antes viviam em memória e
+  // sumiam ao sair da tela.
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    listDocuments(projectId)
+      .then((d) => { if (!cancelled) { setDocs(d); setError(""); } })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  async function addDoc() {
+    if (!currentUser?.id) return;
     const name = window.prompt("Nome do documento?");
-    if (!name) return;
+    if (!name?.trim()) return;
     const url = window.prompt("Cole o link do documento no SharePoint:");
-    if (!url) return;
+    if (!url?.trim()) return;
     // Antes o link era gravado como "#" e o card abria em lugar nenhum.
-    if (!/^https?:\/\//i.test(url)) {
+    if (!/^https?:\/\//i.test(url.trim())) {
       window.alert("O link precisa começar com https://");
       return;
     }
-    setDocs((d) => [
-      {
-        id: crypto.randomUUID(),
-        name,
+    try {
+      const created = await createDocument(projectId, currentUser.id, {
+        name: name.trim(),
+        url: url.trim(),
         type: "outro",
-        date: new Date().toISOString().slice(0, 10),
-        sharepointUrl: url,
-      },
-      ...d,
-    ]);
+      });
+      setDocs((d) => [created, ...d]);
+      setError("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Não foi possível vincular o documento.");
+    }
+  }
+
+  async function removeDoc(id: string) {
+    const before = docs;
+    setDocs((d) => d.filter((x) => x.id !== id));
+    try {
+      await deleteDocument(id);
+    } catch (e) {
+      setDocs(before);
+      setError(e instanceof Error ? e.message : "Não foi possível remover o documento.");
+    }
   }
 
   return (
     <div>
-      <div className="mb-3 rounded-md border border-accent-amber/30 bg-accent-amber/10 px-4 py-2.5 text-xs text-text-primary">
-        A integração com o <strong>SharePoint</strong> ainda não está conectada: por enquanto os documentos
-        são <strong>links colados à mão</strong> e valem só nesta sessão — não ficam salvos ao sair da tela.
+      <div className="mb-3 rounded-md border border-border bg-surface px-4 py-2.5 text-xs text-text-muted">
+        Os documentos ficam no <strong>SharePoint</strong> da Consulcard; aqui o projeto guarda o vínculo.
+        A integração automática (listar e enviar arquivos direto do SharePoint) ainda não existe: por
+        enquanto o link é colado à mão.
       </div>
 
+      {error && (
+        <div className="mb-3 rounded-md border border-accent-red/30 bg-accent-red/10 px-4 py-2.5 text-xs text-accent-red">
+          {error}
+        </div>
+      )}
+
       <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-text-muted">{docs.length} documentos vinculados</div>
+        <div className="text-sm text-text-muted">
+          {loading ? (
+            <span className="inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Carregando documentos...</span>
+          ) : (
+            `${docs.length} documento${docs.length === 1 ? "" : "s"} vinculado${docs.length === 1 ? "" : "s"}`
+          )}
+        </div>
         <Button size="sm" leftIcon={<Plus size={14} />} onClick={addDoc}>
           Documento
         </Button>
@@ -74,7 +116,7 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
           {docs.map((d) => {
             const Icon = ICONS[d.type];
             return (
-              <Card key={d.id} className="hover:border-brand-primary/30">
+              <Card key={d.id} className="relative hover:border-brand-primary/30">
                 <div className="p-4">
                   <div className={`h-10 w-10 rounded-md flex items-center justify-center mb-3 ${ICON_TONES[d.type]}`}>
                     <Icon size={18} />
@@ -93,6 +135,13 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
                   >
                     <ExternalLink size={12} /> Abrir no SharePoint
                   </a>
+                  <button
+                    onClick={() => removeDoc(d.id)}
+                    className="absolute right-2 top-2 rounded p-1 text-text-faint hover:bg-accent-red/10 hover:text-accent-red"
+                    title="Remover vínculo"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                 </div>
               </Card>
             );

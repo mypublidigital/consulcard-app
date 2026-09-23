@@ -22,7 +22,8 @@ import {
   PROJECT_STATUS_OPTIONS,
 } from "@/components/ui/StatusPills";
 import { findMacro, findProjectType, MACRO_COLOR_CLASSES } from "@/mocks/project-types";
-import { useProjectsStore } from "@/store/projects-store";
+import { canEditProject, useProjectsStore } from "@/store/projects-store";
+import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 import { ActivityBoardTab } from "@/features/activity-board/ActivityBoardTab";
 import { CopilotTab } from "@/features/ai-copilot/CopilotTab";
@@ -32,6 +33,10 @@ import { StatusReportTab } from "@/features/status-report/StatusReportTab";
 import { EditProjectModal } from "@/features/project-edit/EditProjectModal";
 
 type TabId = "activities" | "copilot" | "pendencies" | "documents" | "report";
+
+/** Mesma regra do banco: só o gerente do projeto, diretor ou admin editam. */
+const SEM_PERMISSAO_TITULO =
+  "Somente o gerente responsável, um diretor ou um admin podem alterar este projeto";
 
 const TABS: { id: TabId; label: string; icon: any }[] = [
   { id: "activities", label: "Atividades", icon: KanbanSquare },
@@ -48,6 +53,7 @@ export function ProjectDetailPage() {
   const setStatus = useProjectsStore((s) => s.setProjectStatus);
   const syncError = useProjectsStore((s) => s.syncError);
   const clearSyncError = useProjectsStore((s) => s.clearSyncError);
+  const currentUser = useAuthStore((s) => s.currentUser);
   // ?tab=copilot&prompt=ID vem de "Usar em projeto" na Biblioteca (item 15).
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get("tab") as TabId | null;
@@ -81,6 +87,7 @@ export function ProjectDetailPage() {
     );
   }
 
+  const canEdit = canEditProject(project, currentUser);
   const macro = findMacro(project.macroCategory);
   const type = findProjectType(project.macroCategory, project.projectType);
   const macroColor = macro ? MACRO_COLOR_CLASSES[macro.color] : null;
@@ -124,7 +131,9 @@ export function ProjectDetailPage() {
             <select
               value={project.status}
               onChange={(e) => setStatus(project.id, e.target.value as any)}
-              className="h-9 rounded-md border border-border bg-white px-2.5 text-sm focus:border-brand-primary focus:outline-none"
+              disabled={!canEdit}
+              title={canEdit ? undefined : SEM_PERMISSAO_TITULO}
+              className="h-9 rounded-md border border-border bg-white px-2.5 text-sm focus:border-brand-primary focus:outline-none disabled:bg-surface disabled:text-text-faint disabled:cursor-not-allowed"
             >
               {PROJECT_STATUS_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -145,9 +154,13 @@ export function ProjectDetailPage() {
             </Link>
             <button
               onClick={() => setShowEdit(true)}
-              className="h-9 w-9 rounded-md hover:bg-[#F0EDE6] flex items-center justify-center text-text-muted"
+              disabled={!canEdit}
+              className={cn(
+                "h-9 w-9 rounded-md flex items-center justify-center",
+                canEdit ? "hover:bg-[#F0EDE6] text-text-muted" : "text-text-faint/40 cursor-not-allowed"
+              )}
               aria-label="Editar projeto"
-              title="Editar projeto"
+              title={canEdit ? "Editar projeto" : SEM_PERMISSAO_TITULO}
             >
               <MoreHorizontal size={16} />
             </button>
