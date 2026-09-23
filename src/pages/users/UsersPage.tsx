@@ -675,7 +675,7 @@ function DeleteConfirm({ user, onConfirm, onCancel }: { user: User; onConfirm: (
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export function UsersPage() {
   const currentUser = useAuthStore((s) => s.currentUser);
-  const { users, loading, fetchUsers, deleteUser } = useUsersStore();
+  const { users, loading, loadError, fetchUsers, deleteUser } = useUsersStore();
 
   useEffect(() => { fetchUsers(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -785,8 +785,18 @@ export function UsersPage() {
             <tbody className="divide-y divide-border">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-sm text-text-faint">
-                    Nenhum usuário encontrado.
+                  <td colSpan={7} className="text-center py-10 text-sm">
+                    {/* Falha de carga não pode parecer "base vazia". */}
+                    {loadError ? (
+                      <div className="space-y-2">
+                        <div className="text-accent-red">Não foi possível carregar os usuários: {loadError}</div>
+                        <Button size="sm" variant="secondary" onClick={() => fetchUsers()}>Tentar de novo</Button>
+                      </div>
+                    ) : loading ? (
+                      <span className="text-text-faint">Carregando usuários...</span>
+                    ) : (
+                      <span className="text-text-faint">Nenhum usuário encontrado.</span>
+                    )}
                   </td>
                 </tr>
               ) : (

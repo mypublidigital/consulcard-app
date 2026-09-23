@@ -37,6 +37,8 @@ function rowToUser(row: any): User {
 export interface UsersState {
   users: User[];
   loading: boolean;
+  /** Falha ao carregar: a tela precisa distinguir "deu erro" de "não há usuários". */
+  loadError: string | null;
   fetchUsers: () => Promise<void>;
   addUser: (data: {
     name: string;
@@ -54,9 +56,10 @@ export interface UsersState {
 export const useUsersStore = create<UsersState>((set, get) => ({
   users: [],
   loading: false,
+  loadError: null,
 
   fetchUsers: async () => {
-    set({ loading: true });
+    set({ loading: true, loadError: null });
 
     const { data, error } = await supabase
       .from("profiles")
@@ -65,7 +68,7 @@ export const useUsersStore = create<UsersState>((set, get) => ({
 
     if (error || !data) {
       console.error("[users] fetch error:", error);
-      set({ loading: false });
+      set({ loading: false, loadError: error?.message ?? "Não foi possível carregar os usuários." });
       return;
     }
 
