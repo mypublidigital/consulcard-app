@@ -28,13 +28,20 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
   function addDoc() {
     const name = window.prompt("Nome do documento?");
     if (!name) return;
+    const url = window.prompt("Cole o link do documento no SharePoint:");
+    if (!url) return;
+    // Antes o link era gravado como "#" e o card abria em lugar nenhum.
+    if (!/^https?:\/\//i.test(url)) {
+      window.alert("O link precisa começar com https://");
+      return;
+    }
     setDocs((d) => [
       {
-        id: "d-" + Math.random().toString(36).slice(2, 7),
+        id: crypto.randomUUID(),
         name,
         type: "outro",
         date: new Date().toISOString().slice(0, 10),
-        driveUrl: "#",
+        sharepointUrl: url,
       },
       ...d,
     ]);
@@ -42,6 +49,11 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
 
   return (
     <div>
+      <div className="mb-3 rounded-md border border-accent-amber/30 bg-accent-amber/10 px-4 py-2.5 text-xs text-text-primary">
+        A integração com o <strong>SharePoint</strong> ainda não está conectada: por enquanto os documentos
+        são <strong>links colados à mão</strong> e valem só nesta sessão — não ficam salvos ao sair da tela.
+      </div>
+
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm text-text-muted">{docs.length} documentos vinculados</div>
         <Button size="sm" leftIcon={<Plus size={14} />} onClick={addDoc}>
@@ -74,10 +86,12 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
                     {new Date(d.date).toLocaleDateString("pt-BR")}
                   </div>
                   <a
-                    href={d.driveUrl}
+                    href={d.sharepointUrl}
+                    target="_blank"
+                    rel="noreferrer"
                     className="mt-3 inline-flex items-center gap-1 text-xs text-brand-primary hover:underline"
                   >
-                    <ExternalLink size={12} /> Abrir no Drive
+                    <ExternalLink size={12} /> Abrir no SharePoint
                   </a>
                 </div>
               </Card>

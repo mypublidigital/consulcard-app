@@ -208,13 +208,17 @@ export function ClientPortalPage() {
               <div className="flex-1">
                 <div className="text-sm font-medium text-text-primary">{project.manager.name}</div>
                 <div className="text-xs text-text-muted">{project.manager.role}</div>
-                <a
-                  href={`mailto:${project.manager.name.toLowerCase().replace(/\s+/g, ".")}@consulcard.com.br`}
-                  className="inline-flex items-center gap-1 mt-1.5 text-xs text-brand-primary hover:underline"
-                >
-                  <Mail size={12} />
-                  {project.manager.name.toLowerCase().replace(/\s+/g, ".")}@consulcard.com.br
-                </a>
+                {/* O e-mail era inventado a partir do nome (nome.sobrenome@consulcard.com.br),
+                    o que mostrava ao cliente um endereço que pode não existir. */}
+                {project.manager.email && (
+                  <a
+                    href={`mailto:${project.manager.email}`}
+                    className="inline-flex items-center gap-1 mt-1.5 text-xs text-brand-primary hover:underline"
+                  >
+                    <Mail size={12} />
+                    {project.manager.email}
+                  </a>
+                )}
               </div>
             </div>
           </div>

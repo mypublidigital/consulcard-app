@@ -11,7 +11,7 @@ import {
 import { Avatar } from "@/components/ui/Avatar";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
-import { MOCK_PROJECTS } from "@/mocks/projects";
+import { useProjectsStore } from "@/store/projects-store";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
@@ -22,6 +22,7 @@ const navItems = [
 
 export function Sidebar() {
   const currentUser = useAuthStore((s) => s.currentUser);
+  const projects = useProjectsStore((s) => s.projects);
   const canSeeDiretoria =
     currentUser?.systemRole === "admin" || currentUser?.systemRole === "diretor";
   return (
@@ -113,7 +114,8 @@ export function Sidebar() {
         <div className="px-2 mb-1 text-[10px] uppercase tracking-wider text-white/40">
           Portal do Cliente
         </div>
-        {MOCK_PROJECTS.slice(0, 2).map((p) => (
+        {/* Projetos reais do sistema — antes era uma lista fixa de exemplo. */}
+        {projects.slice(0, 3).map((p) => (
           <NavLink
             key={p.id}
             to={`/client/${p.id}`}

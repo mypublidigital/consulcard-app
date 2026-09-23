@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { DIRECTOR_SUGGESTIONS } from "@/mocks/admin";
 import { sendChatMessage, type ChatMessage } from "@/lib/chat";
 import { useProjectsStore } from "@/store/projects-store";
+import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
 
 interface Message {
@@ -187,10 +188,12 @@ export function DirectorChat() {
 
 function Bubble({ message }: { message: Message }) {
   const isUser = message.role === "user";
+  // Antes eram fixos ("DR" / "Diretor") para qualquer pessoa logada.
+  const currentUser = useAuthStore((s) => s.currentUser);
   return (
     <div className={cn("flex items-start gap-3", isUser && "flex-row-reverse")}>
       {isUser ? (
-        <Avatar initials="DR" size="sm" tone="brand" />
+        <Avatar initials={currentUser?.initials ?? "??"} size="sm" tone="brand" />
       ) : (
         <div className="h-7 w-7 rounded-full bg-brand-primary/10 text-brand-primary flex items-center justify-center shrink-0">
           <Sparkles size={14} />
@@ -198,7 +201,7 @@ function Bubble({ message }: { message: Message }) {
       )}
       <div className={cn("max-w-[88%]", isUser && "items-end")}>
         <div className={cn("text-[10px] text-text-faint mb-1", isUser && "text-right")}>
-          {isUser ? "Diretor" : "Co-piloto Executivo"}
+          {isUser ? currentUser?.name?.split(" ")[0] ?? "Você" : "Co-piloto Executivo"}
         </div>
         <div
           className={cn(

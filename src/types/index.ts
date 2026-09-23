@@ -115,5 +115,5 @@ export interface Document {
   name: string;
   type: "ata" | "cronograma" | "report" | "entregavel" | "outro";
   date: string;
-  driveUrl: string;
+  sharepointUrl: string;
 }

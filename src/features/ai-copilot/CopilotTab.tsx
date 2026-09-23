@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Send, Upload, Loader2, Sparkles, FileText, ChevronRight, AlertCircle, ImagePlus } from "lucide-react";
+import { Send, Upload, Loader2, Sparkles, FileText, ChevronRight, AlertCircle, Paperclip } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Avatar } from "@/components/ui/Avatar";
@@ -11,7 +11,8 @@ import { useProjectsStore } from "@/store/projects-store";
 import { DATA_PROTOCOL, PROMPTS, withDataProtocol } from "@/mocks/prompts";
 import { COPILOT_INITIAL_MESSAGES } from "@/mocks/copilot";
 import { sendChatMessage, type ApiMessage, type ChatMessage } from "@/lib/chat";
-import { IMAGE_ACCEPT, MAX_IMAGES_PER_MESSAGE, toImageAttachment, type ImageAttachment } from "@/lib/images";
+import { IMAGE_ACCEPT, MAX_IMAGES_PER_MESSAGE, toImageAttachment } from "@/lib/images";
+import { attachmentBlocks, readPptxText, toPdfAttachment, type Attachment } from "@/lib/attachments";
 import { appendCopilotExchange, loadCopilotHistory } from "@/lib/copilot-history";
 import { downloadBlob, downloadText, extractDrawio, safeFilename } from "@/lib/download";
 import {
@@ -61,25 +62,40 @@ export function CopilotTab({
   const [truncated, setTruncated] = useState(false);
   /** Etapa atual de uma tarefa longa (transcrição em partes). */
   const [progress, setProgress] = useState("");
-  // Imagens coladas/anexadas aguardando envio (item 2).
-  const [images, setImages] = useState<ImageAttachment[]>([]);
+  // Anexos aguardando envio: imagens (item 2) e PDFs (pedido na reunião de 17/09).
+  const [images, setImages] = useState<Attachment[]>([]);
   const imageRef = useRef<HTMLInputElement>(null);
 
-  async function addImages(files: (File | Blob)[]) {
+  async function addImages(files: File[]) {
     const room = MAX_IMAGES_PER_MESSAGE - images.length;
     if (room <= 0) {
-      setError(`No máximo ${MAX_IMAGES_PER_MESSAGE} imagens por mensagem.`);
+      setError(`No máximo ${MAX_IMAGES_PER_MESSAGE} anexos por mensagem.`);
       return;
     }
-    try {
-      const added = await Promise.all(
-        files.slice(0, room).map((f, i) => toImageAttachment(f, f instanceof File ? f.name : `imagem-colada-${i + 1}.png`))
-      );
-      setImages((cur) => [...cur, ...added]);
-      if (files.length > room) setError(`Só as primeiras ${room} imagens foram anexadas (limite de ${MAX_IMAGES_PER_MESSAGE}).`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível anexar a imagem.");
+    setError("");
+    const added: Attachment[] = [];
+    for (const f of files.slice(0, room)) {
+      try {
+        const name = f.name || "arquivo";
+        if (f.type.startsWith("image/")) {
+          added.push({ ...(await toImageAttachment(f, name)), kind: "image" });
+        } else if (f.type === "application/pdf" || name.toLowerCase().endsWith(".pdf")) {
+          // PDF vai inteiro ao modelo: ele lê texto, tabelas e layout.
+          added.push(await toPdfAttachment(f));
+        } else if (name.toLowerCase().endsWith(".pptx")) {
+          // O modelo não abre .pptx: extraímos o texto dos slides aqui.
+          const text = await readPptxText(f);
+          await send(`Conteúdo da apresentação — ${name}:\n\n${text}`);
+          return;
+        } else {
+          throw new Error(`"${name}": formato não suportado aqui. Use o botão Transcrição para .txt, .md, .docx, .vtt e .srt.`);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Não foi possível anexar o arquivo.");
+      }
     }
+    if (added.length) setImages((cur) => [...cur, ...added]);
+    if (files.length > room) setError(`Só os primeiros ${room} anexos foram aceitos (limite de ${MAX_IMAGES_PER_MESSAGE}).`);
   }
 
   function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
@@ -148,6 +164,17 @@ export function CopilotTab({
     [project]
   );
 
+  /** Catálogo enxuto das fichas prontas, para o agente indicar a adequada. */
+  const promptCatalog = useMemo(
+    () =>
+      PROMPTS.filter((p) => p.status === "ready").map((p) => ({
+        id: p.id,
+        title: p.title,
+        activity: p.activityLabel,
+      })),
+    []
+  );
+
   // Contexto real do projeto: o agente só conhece o que vier aqui.
   const projectContext = {
     name: project.name,
@@ -189,7 +216,7 @@ export function CopilotTab({
     // No histórico (tela e banco) a imagem vira uma marcação: ela só é enviada
     // ao modelo nesta pergunta — reenviá-la a cada turno multiplicaria o custo.
     const marker = attached.length
-      ? `\n\n[${attached.length === 1 ? "imagem anexada" : `${attached.length} imagens anexadas`}: ${attached.map((a) => a.name).join(", ")}]`
+      ? `\n\n[${attached.length === 1 ? "anexo" : `${attached.length} anexos`}: ${attached.map((a) => a.name).join(", ")}]`
       : "";
     const userMsg: ChatMessage = { role: "user", content: content + marker };
     const previous = messages;
@@ -213,18 +240,14 @@ export function CopilotTab({
         // A pergunta atual vai com as imagens em blocos, antes do texto.
         apiHistory[apiHistory.length - 1] = {
           role: "user",
-          content: [
-            ...attached.map((a) => ({
-              type: "image" as const,
-              source: { type: "base64" as const, media_type: a.mediaType, data: a.data },
-            })),
-            { type: "text" as const, text: content },
-          ],
+          content: [...attachmentBlocks(attached), { type: "text" as const, text: content }],
         };
       }
       const result = await sendChatMessage(apiHistory, {
         agentType: "copilot",
         projectContext,
+        // Sem a ficha carregada, o agente indica a da Biblioteca que serve ao pedido.
+        promptCatalog: prompt ? undefined : promptCatalog,
         tier: prompt?.tier,
         onText: (t) => {
           pendingText = t;
@@ -422,8 +445,16 @@ export function CopilotTab({
           {images.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
               {images.map((img) => (
-                <div key={img.id} className="relative h-16 w-16 overflow-hidden rounded-md border border-border bg-surface">
-                  <img src={img.previewUrl} alt={img.name} className="h-full w-full object-cover" />
+                <div key={img.id} className="relative h-16 w-16 overflow-hidden rounded-md border border-border bg-surface" title={img.name}>
+                  {img.kind === "image" ? (
+                    <img src={img.previewUrl} alt={img.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-0.5 px-1 text-center">
+                      <FileText size={16} className="text-accent-red" />
+                      <span className="text-[8px] leading-tight text-text-muted line-clamp-2">{img.name}</span>
+                      <span className="text-[8px] text-text-faint">{img.sizeLabel}</span>
+                    </div>
+                  )}
                   <button
                     onClick={() => setImages((cur) => cur.filter((x) => x.id !== img.id))}
                     className="absolute right-0.5 top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-black/60 text-[10px] text-white hover:bg-black/80"
@@ -440,7 +471,7 @@ export function CopilotTab({
             <input
               ref={imageRef}
               type="file"
-              accept={IMAGE_ACCEPT}
+              accept={`${IMAGE_ACCEPT},application/pdf,.pdf,.pptx`}
               multiple
               className="hidden"
               onChange={(e) => {
@@ -460,11 +491,12 @@ export function CopilotTab({
             <Button
               variant="secondary"
               size="md"
-              leftIcon={<ImagePlus size={14} />}
+              leftIcon={<Paperclip size={14} />}
               onClick={() => imageRef.current?.click()}
-              title="Anexar imagem — ou cole direto no campo com Ctrl+V"
-              aria-label="Anexar imagem"
-            />
+              title="Anexar imagem, PDF ou PowerPoint — imagem também pode ser colada com Ctrl+V"
+            >
+              Anexar
+            </Button>
             <textarea
               ref={inputRef}
               value={input}

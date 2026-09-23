@@ -72,7 +72,21 @@ function projectSection(ctx?: Record<string, unknown>): string {
   return lines.join("\n");
 }
 
-const COPILOT_SYSTEM = (ctx?: Record<string, unknown>) => `Você é o Co-piloto Operacional da Consulcard, consultoria de projetos regulatórios e de meios de pagamento.
+function catalogSection(catalog?: { id: string; title: string; activity: string }[]): string {
+  if (!catalog?.length) return "";
+  return `BIBLIOTECA DE PROMPTS DA CONSULCARD — fichas já existentes:
+${catalog.map((p) => `- ${p.id} · ${p.title} (${p.activity})`).join("\n")}
+
+Se o que o usuário pediu corresponde a uma destas fichas, diga qual antes de responder, no formato:
+"A Consulcard já tem a ficha [ID] — [título]. Você pode carregá-la em Biblioteca de Prompts → Usar em projeto, o que garante o padrão da casa. Se preferir, sigo com o pedido assim mesmo."
+Depois atenda o pedido normalmente. Não invente ficha que não esteja na lista.
+
+`;
+}
+
+const COPILOT_SYSTEM = (ctx?: Record<string, unknown>, catalog?: { id: string; title: string; activity: string }[]) => `Você é o Co-piloto Operacional da Consulcard, consultoria de projetos regulatórios e de meios de pagamento.
+
+${catalogSection(catalog)}
 
 ${ctx ? `DADOS DO PROJETO ATUAL (fonte: sistema; são os únicos dados do projeto que você conhece):\n${projectSection(ctx)}\n` : ""}
 Você ajuda consultores a:
@@ -115,6 +129,8 @@ Deno.serve(async (req) => {
     agentType: "director" | "copilot";
     projectContext?: Record<string, unknown>;
     portfolio?: unknown;
+    /** Fichas da Biblioteca disponíveis, para o agente indicar a certa. */
+    promptCatalog?: { id: string; title: string; activity: string }[];
     tier?: Tier;
     /** true = NDJSON em streaming; ausente = JSON único (clientes antigos). */
     stream?: boolean;
@@ -132,7 +148,7 @@ Deno.serve(async (req) => {
   const model = MODEL_BY_TIER[tier];
   const system = body.agentType === "director"
     ? DIRECTOR_SYSTEM(body.portfolio)
-    : COPILOT_SYSTEM(body.projectContext);
+    : COPILOT_SYSTEM(body.projectContext, body.promptCatalog);
 
   const client = new Anthropic({ apiKey });
   const encoder = new TextEncoder();

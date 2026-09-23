@@ -8,7 +8,8 @@ export interface ChatMessage {
 /** Bloco de conteúdo da API: texto ou imagem em base64. */
 export type ApiContentBlock =
   | { type: "text"; text: string }
-  | { type: "image"; source: { type: "base64"; media_type: string; data: string } };
+  | { type: "image"; source: { type: "base64"; media_type: string; data: string } }
+  | { type: "document"; source: { type: "base64"; media_type: "application/pdf"; data: string } };
 
 /** Mensagem como vai para a API: texto simples ou blocos (quando há imagem). */
 export interface ApiMessage {
@@ -23,6 +24,8 @@ export interface ChatOptions {
   portfolio?: unknown;
   /** Tier da ficha da biblioteca (T1/T2/T3); o backend escolhe o modelo por ele. */
   tier?: "T1" | "T2" | "T3";
+  /** Fichas disponíveis, para o agente apontar a certa em vez de improvisar. */
+  promptCatalog?: { id: string; title: string; activity: string }[];
   /** Recebe cada trecho assim que chega, para a resposta aparecer enquanto é escrita. */
   onText?: (fullTextSoFar: string) => void;
 }
@@ -59,6 +62,7 @@ export async function sendChatMessage(messages: ApiMessage[], options: ChatOptio
       agentType: options.agentType,
       projectContext: options.projectContext,
       portfolio: options.portfolio,
+      promptCatalog: options.promptCatalog,
       tier: options.tier,
       stream: true,
     }),
