@@ -24,8 +24,9 @@ const MAX_TOKENS = 64000;
 
 // Tempo máximo de uma chamada (testes de 06/10, GAPs #10, #12 e #14). A Edge
 // Function é encerrada pelo Supabase ao atingir o limite de relógio do plano
-// (150 s no gratuito): gerar um fluxograma de 60 mil caracteres leva vários
-// minutos, a função morria no meio e a tela mostrava "A conexão caiu".
+// (400 s no Pro, 150 s no gratuito; em produção: secret = 360): gerar um
+// fluxograma de 60 mil caracteres pode passar disso, a função morria no meio
+// e a tela mostrava "A conexão caiu".
 // Agora ela para sozinha antes do limite e avisa (stop_reason "time_limit");
 // o app pede a continuação automaticamente, emendando as partes.
 const TIME_BUDGET_MS = Number(Deno.env.get("CHAT_TIME_BUDGET_SECONDS") ?? "120") * 1000;
@@ -165,13 +166,16 @@ function toBase64(bytes: Uint8Array): string {
 async function resolveStoredFiles(
   messages: { role: "user" | "assistant"; content: string | unknown[] }[],
   authHeader: string | null,
+  apiKey: string | null,
 ) {
   const hasStored = messages.some((m) =>
     Array.isArray(m.content) && m.content.some((b) => (b as { type?: string })?.type === "stored_file")
   );
   if (!hasStored) return messages;
 
-  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+  // Mesma chave pública que o app enviou (sistema novo de chaves); a do
+  // ambiente é a antiga e deixa de valer se as chaves antigas forem desligadas.
+  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, apiKey ?? Deno.env.get("SUPABASE_ANON_KEY")!, {
     global: { headers: authHeader ? { Authorization: authHeader } : {} },
   });
   const cache = new Map<string, Promise<Blob | null>>();
@@ -232,6 +236,8 @@ Deno.serve(async (req) => {
     tier?: Tier;
     /** true = NDJSON em streaming; ausente = JSON único (clientes antigos). */
     stream?: boolean;
+    /** Etapa de continuação de uma resposta longa (o app emenda as partes). */
+    continuation?: boolean;
   };
   try {
     body = await req.json();
@@ -244,7 +250,7 @@ Deno.serve(async (req) => {
 
   let messages: typeof body.messages;
   try {
-    messages = await resolveStoredFiles(body.messages, req.headers.get("Authorization"));
+    messages = await resolveStoredFiles(body.messages, req.headers.get("Authorization"), req.headers.get("apikey"));
   } catch (err) {
     return json({ error: err instanceof Error ? err.message : String(err) }, 400);
   }
@@ -265,7 +271,17 @@ Deno.serve(async (req) => {
     : {};
   // Conversa livre (T2) com esforço médio: o raciocínio silencioso no padrão
   // "high" deixava a tela em "Pensando..." por minutos. Fichas T3 mantêm o padrão.
-  const effortParams = tier === "T2" ? { output_config: { effort: "medium" } } : {};
+  // Continuação: o conteúdo já foi decidido na etapa anterior, só falta
+  // escrever — sem isto cada etapa recomeçava a raciocinar do zero e gastava
+  // o tempo dela sem escrever nada (medido em produção em 20/10).
+  // Haiku 4.5 (T1) não aceita o parâmetro de esforço.
+  const effortParams = tier === "T1"
+    ? {}
+    : body.continuation
+    ? { output_config: { effort: "low" } }
+    : tier === "T2"
+    ? { output_config: { effort: "medium" } }
+    : {};
 
   const openStream = () =>
     client.beta.messages.stream({

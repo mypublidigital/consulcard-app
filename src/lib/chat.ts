@@ -52,6 +52,8 @@ export interface ChatOptions {
   onStatus?: (status: ChatStatus) => void;
   /** "Parar" no app (GAP #6): interrompe a resposta e mantém o que já veio. */
   signal?: AbortSignal;
+  /** Etapa de continuação: o servidor reduz o raciocínio e só segue escrevendo. */
+  continuation?: boolean;
 }
 
 export type ChatStatus = "waiting" | "thinking" | "writing" | "continuing";
@@ -96,6 +98,7 @@ export async function sendChatMessage(messages: ApiMessage[], options: ChatOptio
         promptCatalog: options.promptCatalog,
         tier: options.tier,
         stream: true,
+        continuation: options.continuation || undefined,
       }),
       signal: options.signal,
     });
@@ -199,6 +202,7 @@ export async function sendChatWithContinuation(messages: ApiMessage[], options: 
     const prefix = full;
     last = await sendChatMessage(history, {
       ...options,
+      continuation: round > 0,
       onText: (t) => options.onText?.(joinContinuation(prefix, t)),
     });
     full = joinContinuation(prefix, last.content);
