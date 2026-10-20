@@ -10,7 +10,7 @@ import type { Project } from "@/types";
 import { Avatar } from "@/components/ui/Avatar";
 import { ActivityStatus } from "@/components/ui/StatusPills";
 import { PROMPTS, withDataProtocol } from "@/mocks/prompts";
-import { sendChatMessage } from "@/lib/chat";
+import { sendChatWithContinuation } from "@/lib/chat";
 import { downloadBlob, safeFilename } from "@/lib/download";
 import { buildReportData, notesForM12, reportToDocModel } from "./report-data";
 
@@ -42,7 +42,7 @@ export function StatusReportTab({ project }: { project: Project }) {
       const m12 = PROMPTS.find((p) => p.id === "M1.2");
       const body = (m12?.body ?? "Gere um Relatório de Status Executivo a partir destes dados: [NOTAS]")
         .replace("[NOTAS]", `\n\n${notesForM12(data, notes)}\n\n`);
-      const result = await sendChatMessage(
+      const result = await sendChatWithContinuation(
         [{ role: "user", content: withDataProtocol(body) }],
         { agentType: "copilot", tier: m12?.tier ?? "T1" }
       );

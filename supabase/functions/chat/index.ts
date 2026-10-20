@@ -1,4 +1,5 @@
 import Anthropic from "npm:@anthropic-ai/sdk";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -21,6 +22,18 @@ type Tier = keyof typeof MODEL_BY_TIER;
 // com streaming não há risco de timeout.
 const MAX_TOKENS = 64000;
 
+// Tempo máximo de uma chamada (testes de 06/10, GAPs #10, #12 e #14). A Edge
+// Function é encerrada pelo Supabase ao atingir o limite de relógio do plano
+// (150 s no gratuito): gerar um fluxograma de 60 mil caracteres leva vários
+// minutos, a função morria no meio e a tela mostrava "A conexão caiu".
+// Agora ela para sozinha antes do limite e avisa (stop_reason "time_limit");
+// o app pede a continuação automaticamente, emendando as partes.
+const TIME_BUDGET_MS = Number(Deno.env.get("CHAT_TIME_BUDGET_SECONDS") ?? "120") * 1000;
+
+// Sinal de vida enquanto o modelo raciocina sem escrever: sem isto a conexão
+// ficava muda por longos períodos e a tela parecia travada em "Pensando...".
+const KEEPALIVE_MS = 5000;
+
 // ── Mapa da interface ─────────────────────────────────────────────────────────
 // Sem isto o agente inventava menus e botões ao orientar o usuário (item 16).
 const UI_MAP = `COMO O SISTEMA FUNCIONA — use SOMENTE este mapa ao orientar o usuário na interface.
@@ -34,12 +47,14 @@ Menu lateral:
 
 Dentro de um projeto, abas:
 - Atividades — quadro Kanban com as colunas A fazer, Em andamento, Em revisão e Concluída. Arrastar o cartão muda o status. Botão "+ Atividade" cria uma nova. Clicar no cartão abre o detalhe.
-- Co-piloto IA — este chat. Lateral direita: fase atual e "Prompts para esta fase" (clicar carrega o prompt no campo). Botão "Transcrição" envia arquivo de reunião.
+- Co-piloto IA — este chat. Lateral direita: fase atual, "Usados neste projeto" e "Prompts para esta fase" (clicar carrega o prompt no campo). Botão "Transcrição" envia arquivo de reunião; "Anexar" (ou arrastar/colar o arquivo) envia PDF, imagem, Word, PowerPoint ou texto. "Parar" interrompe a resposta. Cada resposta tem "Salvar em Documentos".
 - Pendências — lista com filtro Todas/Abertas/Resolvidas. "+ Pendência" cria; "Resolver" fecha; "Reabrir" volta a pendência resolvida para aberta.
-- Documentos — documentos do projeto.
+- Documentos — documentos do projeto: links do SharePoint e os arquivos anexados no co-piloto.
 - Status Report — relatório de andamento do projeto.
 
 Topo do projeto: seletor de status, "Gerar Status Report", "Adicionar pendência", "Ver portal" (portal do cliente) e o botão "…" que abre a edição do projeto.
+
+Topo de todas as telas: sino de notificações (pendências e atividades vencidas ou vencendo) e o menu do perfil (iniciais do usuário), com "Alterar senha" e "Sair".
 
 REGRAS:
 - Se o usuário perguntar como fazer algo que não está neste mapa, diga que não sabe onde fica — NUNCA invente menu, aba ou botão.
@@ -84,6 +99,18 @@ Depois atenda o pedido normalmente. Não invente ficha que não esteja na lista.
 `;
 }
 
+// Testes de 06/10 (GAPs #7 e #9): o modelo respondia "não tenho capacidade de
+// abrir anexos (PDF, .docx...)" — falso — e pedia para colar o texto. Os
+// arquivos chegam como conteúdo das mensagens.
+const FILES_RULES = `ARQUIVOS DA CONVERSA:
+- Você LÊ os arquivos anexados: PDF (texto, tabelas e também o desenho das páginas — fluxogramas e diagramas incluídos), imagens, e o texto de Word (.docx), PowerPoint (.pptx), transcrições (.txt, .vtt, .srt) e XML. Eles chegam como blocos de documento/imagem nas mensagens do usuário, com o nome do arquivo.
+- Nunca diga que não consegue abrir ou ler anexos. Se o usuário citar um arquivo que não está na conversa, diga que esse arquivo específico não chegou e peça para anexá-lo de novo pelo botão "Anexar".
+- Áudio e vídeo (.mp4, .mp3) não são lidos: oriente a anexar a transcrição gerada pelo Teams (.docx ou .vtt).
+
+RESPOSTAS LONGAS:
+- Entregue o pedido inteiro numa resposta só, sem perguntar se pode dividir. O sistema emenda automaticamente quando uma resposta precisa de mais de uma etapa.
+- Se a mensagem do usuário pedir para continuar de onde parou, continue exatamente do ponto em que o texto anterior terminou: sem repetir, sem introdução e sem reabrir bloco de código já aberto.`;
+
 const COPILOT_SYSTEM = (ctx?: Record<string, unknown>, catalog?: { id: string; title: string; activity: string }[]) => `Você é o Co-piloto Operacional da Consulcard, consultoria de projetos regulatórios e de meios de pagamento.
 
 ${catalogSection(catalog)}
@@ -98,6 +125,8 @@ Você ajuda consultores a:
 
 ${UI_MAP}
 
+${FILES_RULES}
+
 Não invente dados do projeto que não estejam acima. Responda sempre em português do Brasil, com Markdown quando ajudar a leitura.`;
 
 // O agente executivo recebe o portfólio real do cliente. Antes tinha dados
@@ -110,21 +139,90 @@ ${UI_MAP}
 
 Responda de forma executiva, direta e orientada a decisões. Use apenas os dados acima: se a pergunta exigir algo que não está neles (valores financeiros, indicadores não listados), diga que o dado não está disponível — nunca estime nem invente. Responda em português do Brasil, com Markdown quando útil.`;
 
+// ── Arquivos guardados no projeto ─────────────────────────────────────────────
+// Testes de 06/10 (GAPs #7 e #9): o anexo só ia ao modelo na pergunta em que
+// foi anexado; nas seguintes virava apenas o nome, e o modelo dizia que nunca
+// tinha recebido o arquivo. Agora o app guarda o anexo no Storage do projeto e
+// manda só a referência em toda pergunta; a função busca o conteúdo aqui, com
+// o token de quem chamou (as regras de acesso do Storage continuam valendo).
+interface StoredFileBlock {
+  type: "stored_file";
+  path: string;
+  name: string;
+  /** pdf → documento; image → imagem; text → documento de texto (Word, PPT, transcrição). */
+  as: "pdf" | "image" | "text";
+  media_type?: string;
+}
+
+function toBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(binary);
+}
+
+async function resolveStoredFiles(
+  messages: { role: "user" | "assistant"; content: string | unknown[] }[],
+  authHeader: string | null,
+) {
+  const hasStored = messages.some((m) =>
+    Array.isArray(m.content) && m.content.some((b) => (b as { type?: string })?.type === "stored_file")
+  );
+  if (!hasStored) return messages;
+
+  const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+    global: { headers: authHeader ? { Authorization: authHeader } : {} },
+  });
+  const cache = new Map<string, Promise<Blob | null>>();
+  const download = (path: string) => {
+    if (!cache.has(path)) {
+      cache.set(path, supabase.storage.from("project-files").download(path).then(({ data, error }) => {
+        if (error) console.error("anexo indisponível:", path, error.message);
+        return data ?? null;
+      }));
+    }
+    return cache.get(path)!;
+  };
+
+  return Promise.all(messages.map(async (m) => {
+    if (!Array.isArray(m.content)) return m;
+    const content = await Promise.all(m.content.map(async (b) => {
+      const block = b as StoredFileBlock;
+      if (block?.type !== "stored_file") return b;
+      const blob = await download(block.path);
+      // Arquivo removido da aba Documentos: a conversa segue, e o modelo sabe que ele saiu.
+      if (!blob) return { type: "text", text: `[Anexo "${block.name}" indisponível: foi removido do projeto.]` };
+      if (block.as === "text") {
+        return { type: "document", source: { type: "text", media_type: "text/plain", data: await blob.text() }, title: block.name };
+      }
+      const data = toBase64(new Uint8Array(await blob.arrayBuffer()));
+      if (block.as === "pdf") {
+        return { type: "document", source: { type: "base64", media_type: "application/pdf", data }, title: block.name };
+      }
+      return { type: "image", source: { type: "base64", media_type: block.media_type ?? "image/png", data } };
+    }));
+    return { ...m, content };
+  }));
+}
+
 // ── Handler ───────────────────────────────────────────────────────────────────
 // Resposta em streaming, uma linha JSON por evento (NDJSON):
-//   {"type":"text","text":"..."}  … trechos da resposta
+//   {"type":"text","text":"..."}      … trechos da resposta
+//   {"type":"status","status":"..."}  … "thinking" enquanto raciocina
+//   {"type":"ping"}                   … sinal de vida a cada 5 s
 //   {"type":"done","stop_reason":"end_turn","model":"..."}
+//      stop_reason "time_limit" = parou perto do limite de tempo; o app continua
 //   {"type":"error","error":"..."}
-// O streaming mantém a conexão ativa em respostas longas (sem timeout) e o
-// stop_reason permite ao front avisar quando a resposta foi cortada.
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const startedAt = Date.now();
 
   const json = (body: unknown, status = 200) =>
     new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 
   let body: {
-    // content: texto, ou blocos quando há imagem anexada (repassados à API como vêm).
+    // content: texto, ou blocos (imagem, documento, arquivo guardado e texto).
     messages: { role: "user" | "assistant"; content: string | unknown[] }[];
     agentType: "director" | "copilot";
     projectContext?: Record<string, unknown>;
@@ -144,6 +242,13 @@ Deno.serve(async (req) => {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return json({ error: "ANTHROPIC_API_KEY não configurada." }, 500);
 
+  let messages: typeof body.messages;
+  try {
+    messages = await resolveStoredFiles(body.messages, req.headers.get("Authorization"));
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 400);
+  }
+
   const tier: Tier = body.tier && body.tier in MODEL_BY_TIER ? body.tier : "T2";
   const model = MODEL_BY_TIER[tier];
   const system = body.agentType === "director"
@@ -158,13 +263,20 @@ Deno.serve(async (req) => {
   const fallbackParams = model === "claude-opus-5"
     ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" }
     : {};
+  // Conversa livre (T2) com esforço médio: o raciocínio silencioso no padrão
+  // "high" deixava a tela em "Pensando..." por minutos. Fichas T3 mantêm o padrão.
+  const effortParams = tier === "T2" ? { output_config: { effort: "medium" } } : {};
 
   const openStream = () =>
     client.beta.messages.stream({
       model,
       max_tokens: MAX_TOKENS,
       system,
-      messages: body.messages,
+      messages,
+      // Documentos e histórico são reenviados a cada pergunta: com cache, a
+      // parte repetida custa ~10% e responde mais rápido.
+      cache_control: { type: "ephemeral" },
+      ...effortParams,
       ...fallbackParams,
       // deno-lint-ignore no-explicit-any
     } as any);
@@ -188,21 +300,46 @@ Deno.serve(async (req) => {
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (obj: unknown) => controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+      let closed = false;
+      const send = (obj: unknown) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        } catch {
+          closed = true; // o navegador desconectou
+        }
+      };
+      const s = openStream();
+      let timedOut = false;
+      const keepalive = setInterval(() => send({ type: "ping" }), KEEPALIVE_MS);
+      const budget = setTimeout(() => {
+        timedOut = true;
+        s.abort();
+      }, Math.max(10_000, TIME_BUDGET_MS - (Date.now() - startedAt)));
+      // "Parar" no app fecha a conexão: interrompe a geração e a cobrança.
+      req.signal.addEventListener("abort", () => s.abort());
+
       try {
-        const s = openStream();
         for await (const event of s) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          if (event.type === "content_block_start" && event.content_block.type === "thinking") {
+            send({ type: "status", status: "thinking" });
+          } else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
             send({ type: "text", text: event.delta.text });
           }
         }
         const final = await s.finalMessage();
         send({ type: "done", stop_reason: final.stop_reason, model: final.model });
       } catch (err) {
-        console.error("chat stream error:", err);
-        send({ type: "error", error: err instanceof Error ? err.message : String(err) });
+        if (timedOut) {
+          send({ type: "done", stop_reason: "time_limit", model });
+        } else {
+          console.error("chat stream error:", err);
+          send({ type: "error", error: err instanceof Error ? err.message : String(err) });
+        }
       } finally {
-        controller.close();
+        clearInterval(keepalive);
+        clearTimeout(budget);
+        if (!closed) controller.close();
       }
     },
   });
@@ -211,3 +348,4 @@ Deno.serve(async (req) => {
     headers: { ...corsHeaders, "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-cache" },
   });
 });
+

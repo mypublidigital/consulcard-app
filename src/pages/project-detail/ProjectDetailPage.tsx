@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   FileText,
@@ -60,6 +60,10 @@ export function ProjectDetailPage() {
   const [tab, setTab] = useState<TabId>(
     tabParam && TABS.some((t) => t.id === tabParam) ? tabParam : "activities"
   );
+  // Link para outra aba estando já no projeto (ex.: item das notificações).
+  useEffect(() => {
+    if (tabParam && TABS.some((t) => t.id === tabParam)) setTab(tabParam);
+  }, [tabParam]);
   const initialPromptId = searchParams.get("prompt");
   /** Consumido o prompt, limpa a URL para não recarregá-lo a cada visita. */
   const consumePromptParam = () => {

@@ -1,9 +1,6 @@
 import { create } from "zustand";
 import type { Activity, ActivityStatusValue, Pendency, Project, User } from "@/types";
-import { MOCK_PROJECTS } from "@/mocks/projects";
-import { MOCK_PENDENCIES } from "@/mocks/pendencies";
 import { getActivitiesForType } from "@/mocks/activities";
-import { USERS } from "@/mocks/users";
 import { supabase } from "@/lib/supabase";
 
 interface ProjectsState {
@@ -15,7 +12,11 @@ interface ProjectsState {
   /** Última falha ao gravar no banco; a tela mostra e oferece fechar. */
   syncError: string | null;
   clearSyncError: () => void;
+  /** Falha ao carregar os projetos (a lista vazia não pode parecer "sem projetos"). */
+  loadError: string | null;
   fetchProjects: () => Promise<void>;
+  /** Descarta tudo ao sair: o próximo usuário do navegador não vê dados do anterior. */
+  reset: () => void;
   addProject: (p: Project, typeId: string) => Promise<void>;
   updateActivityStatus: (projectId: string, activityId: string, status: ActivityStatusValue) => Promise<void>;
   addActivity: (projectId: string, activity: Activity) => Promise<void>;
@@ -26,35 +27,6 @@ interface ProjectsState {
   updatePendency: (id: string, patch: Partial<Pendency>) => Promise<void>;
   setProjectStatus: (projectId: string, status: Project["status"]) => Promise<void>;
   updateProject: (projectId: string, patch: Partial<Project>) => Promise<void>;
-}
-
-function seedActivities(): Record<string, Activity[]> {
-  const out: Record<string, Activity[]> = {};
-  for (const p of MOCK_PROJECTS) {
-    const base = getActivitiesForType(p.projectType).map((a, idx) => {
-      let status: ActivityStatusValue = "todo";
-      if (p.id === "proj-001") {
-        if (idx < 3) status = "done";
-        else if (idx < 5) status = "in_progress";
-        else if (idx === 5) status = "review";
-      } else if (p.id === "proj-002") {
-        if (idx === 0) status = "done";
-        else if (idx === 1) status = "in_progress";
-      }
-      const assignee = p.consultants[idx % Math.max(1, p.consultants.length)] ?? p.manager ?? USERS[0];
-      const due = new Date(p.startDate);
-      due.setDate(due.getDate() + (idx + 1) * 14);
-      return {
-        ...a,
-        status,
-        assignee,
-        dueDate: due.toISOString().slice(0, 10),
-        pendingCount: idx === 1 && p.id === "proj-001" ? 2 : 0,
-      };
-    });
-    out[p.id] = base;
-  }
-  return out;
 }
 
 const PROFILE_COLUMNS =
@@ -234,17 +206,26 @@ export function canEditProject(project: Project | undefined, user: User | null |
   return project.manager?.id === user.id || user.systemRole === "admin" || user.systemRole === "diretor";
 }
 
-export const useProjectsStore = create<ProjectsState>((set, get) => ({
-  projects: MOCK_PROJECTS,
-  activitiesByProject: seedActivities(),
-  pendencies: MOCK_PENDENCIES,
+// Começa vazio. Antes começava com projetos e atividades de demonstração —
+// atribuídas a "Wagner Lima", usuário que não existe — e eles continuavam na
+// tela se a carga do banco falhasse (testes de 06/10, backlog 17).
+const EMPTY = {
+  projects: [] as Project[],
+  activitiesByProject: {} as Record<string, Activity[]>,
+  pendencies: [] as Pendency[],
   loading: false,
   initialized: false,
-  syncError: null,
+  syncError: null as string | null,
+  loadError: null as string | null,
+};
+
+export const useProjectsStore = create<ProjectsState>((set, get) => ({
+  ...EMPTY,
   clearSyncError: () => set({ syncError: null }),
+  reset: () => set(EMPTY),
 
   fetchProjects: async () => {
-    set({ loading: true });
+    set({ loading: true, loadError: null });
     const { data, error } = await supabase
       .from("projects")
       // Colunas de profiles são explícitas: temp_password não é legível pelo
@@ -258,13 +239,12 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
 
     if (error) {
       console.error("[projects] fetch error:", error);
-      set({ loading: false, initialized: true });
+      set({ loading: false, initialized: true, loadError: `Não foi possível carregar os projetos: ${error.message}` });
       return;
     }
 
     if (!data || data.length === 0) {
-      // Banco vazio → mantém os projetos de demonstração em memória.
-      set({ loading: false, initialized: true });
+      set({ projects: [], activitiesByProject: {}, pendencies: [], loading: false, initialized: true });
       return;
     }
 

@@ -1,83 +1,77 @@
 import { useEffect } from "react";
+import { Link } from "react-router-dom";
 import { Card, CardHeader, CardTitle } from "@/components/ui/Card";
 import { Avatar } from "@/components/ui/Avatar";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Badge } from "@/components/ui/Badge";
 import { useProjectsStore } from "@/store/projects-store";
 import { useUsersStore } from "@/store/users-store";
-import { CONSULTANT_METRICS, MANAGER_METRICS, type ConsultantMetrics, type ManagerMetrics } from "@/mocks/admin";
 import { findMacro, findProjectType, MACRO_COLOR_CLASSES } from "@/mocks/project-types";
-import { Link } from "react-router-dom";
+import type { PortfolioMetrics } from "./portfolio-metrics";
+import type { User } from "@/types";
 
-const EMPTY_MANAGER_METRICS: Omit<ManagerMetrics, "userId"> = {
-  projectsManaged: 0, portfolioRevenueR: 0, avgProgress: 0,
-  delayedProjects: 0, copilotAdoption: 0, npsClient: 0,
-};
-const EMPTY_CONSULTANT_METRICS: Omit<ConsultantMetrics, "userId"> = {
-  projectsActive: 0, activitiesAssigned: 0, activitiesDone: 0,
-  avgCycleTimeDays: 0, copilotMessages: 0, copilotArtifacts: 0,
-  qualityScore: 0, utilizationPct: 0,
-};
-
-function formatBRL(v: number) {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-}
-
-export function PipelineByManager() {
-  const projects = useProjectsStore((s) => s.projects);
+/**
+ * Carteira por gerente e carga por consultor, com dados reais. Antes os
+ * números (receita da carteira, NPS, cycle time, qualidade, utilização)
+ * vinham de um arquivo de exemplo; o sistema não registra esses dados, então
+ * as colunas saíram (testes de 06/10, backlog 9).
+ */
+function useActiveUsers() {
   const users = useUsersStore((s) => s.users);
   const fetchUsers = useUsersStore((s) => s.fetchUsers);
   useEffect(() => { if (users.length === 0) fetchUsers(); }, [users.length, fetchUsers]);
+  return users.filter((u) => u.active !== false);
+}
 
-  const managers = users.filter((u) =>
-    u.active !== false && (u.systemRole === "gerente" || u.systemRole === "admin" || u.systemRole === "diretor")
-  );
+export function PipelineByManager({ metrics }: { metrics: PortfolioMetrics }) {
+  const users = useActiveUsers();
+  // Quem gerencia projeto ativo aparece, qualquer que seja o perfil — vindo do
+  // próprio projeto, para não depender da lista de usuários ter carregado.
+  const byId = new Map<string, User>();
+  for (const h of metrics.activeHealth) {
+    const m = h.project.manager;
+    if (m?.id) byId.set(m.id, users.find((u) => u.id === m.id) ?? m);
+  }
+  for (const u of users) if (u.systemRole === "gerente" && !byId.has(u.id)) byId.set(u.id, u);
+  const managers = [...byId.values()];
 
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
         <div>
-          <CardTitle>Pipeline por gerente</CardTitle>
-          <p className="text-[11px] text-text-faint mt-0.5">workflow consolidado por carteira</p>
+          <CardTitle>Carteira por gerente</CardTitle>
+          <p className="text-[11px] text-text-faint mt-0.5">projetos ativos sob cada gerência</p>
         </div>
         <Badge tone="blue" size="sm">{managers.length} gerentes</Badge>
       </CardHeader>
       <div className="divide-y divide-border">
         {managers.length === 0 && (
-          <div className="px-5 py-6 text-xs text-text-faint text-center">Nenhum gerente cadastrado.</div>
+          <div className="px-5 py-6 text-xs text-text-faint text-center">Nenhum gerente com projeto ativo.</div>
         )}
         {managers.map((user) => {
-          const m = { userId: user.id, ...EMPTY_MANAGER_METRICS, ...(MANAGER_METRICS.find((x) => x.userId === user.id) ?? {}) };
-          const managerProjects = projects.filter((p) => p.manager.id === user.id);
+          const mine = metrics.activeHealth.filter((h) => h.project.manager?.id === user.id);
+          const avg = mine.length ? Math.round(mine.reduce((a, h) => a + (h.project.progress ?? 0), 0) / mine.length) : 0;
+          const late = mine.filter((h) => h.delayedActivities > 0 || h.overduePendencies > 0).length;
+          const usingCopilot = mine.filter((h) => h.copilotQuestions30d > 0).length;
           return (
-            <div key={m.userId} className="p-5">
-              <div className="flex items-start justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <Avatar initials={user.initials} size="md" tone="brand" />
-                  <div>
-                    <div className="text-sm font-semibold text-text-primary">{user.name}</div>
-                    <div className="text-[11px] text-text-faint">{user.role}</div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-[10px] text-text-faint uppercase tracking-wider">Receita carteira</div>
-                  <div className="text-sm font-semibold font-mono text-text-primary">{formatBRL(m.portfolioRevenueR)}</div>
+            <div key={user.id} className="p-5">
+              <div className="flex items-center gap-3 mb-4">
+                <Avatar initials={user.initials} size="md" tone="brand" />
+                <div>
+                  <div className="text-sm font-semibold text-text-primary">{user.name}</div>
+                  <div className="text-[11px] text-text-faint">{user.role}</div>
                 </div>
               </div>
 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-                <Stat label="Projetos" value={m.projectsManaged} />
-                <Stat label="Progresso médio" value={`${m.avgProgress}%`} />
-                <Stat
-                  label="Em atraso"
-                  value={m.delayedProjects}
-                  tone={m.delayedProjects > 0 ? "red" : "neutral"}
-                />
-                <Stat label="Adoção co-piloto" value={`${m.copilotAdoption}%`} tone={m.copilotAdoption > 70 ? "green" : "amber"} />
+                <Stat label="Projetos" value={mine.length} />
+                <Stat label="Progresso médio" value={`${avg}%`} />
+                <Stat label="Com atraso" value={late} tone={late > 0 ? "red" : "neutral"} />
+                <Stat label="Usam co-piloto" value={`${usingCopilot}/${mine.length}`} tone={mine.length && usingCopilot === mine.length ? "green" : "neutral"} />
               </div>
 
               <div className="space-y-2">
-                {managerProjects.map((p) => {
+                {mine.map(({ project: p, delayedActivities }) => {
                   const macro = findMacro(p.macroCategory);
                   const type = findProjectType(p.macroCategory, p.projectType);
                   const macroColor = macro ? MACRO_COLOR_CLASSES[macro.color] : null;
@@ -96,6 +90,7 @@ export function PipelineByManager() {
                             </span>
                           )}
                           {p.client}
+                          {delayedActivities > 0 && <span className="ml-1 text-accent-red">· {delayedActivities} atrasada(s)</span>}
                         </div>
                       </div>
                       <div className="w-32">
@@ -105,7 +100,7 @@ export function PipelineByManager() {
                     </Link>
                   );
                 })}
-                {managerProjects.length === 0 && (
+                {mine.length === 0 && (
                   <div className="text-[11px] text-text-faint italic px-2 py-1">Sem projetos ativos sob esta gerência.</div>
                 )}
               </div>
@@ -117,21 +112,18 @@ export function PipelineByManager() {
   );
 }
 
-export function PipelineByConsultant() {
-  const projects = useProjectsStore((s) => s.projects);
+export function PipelineByConsultant({ metrics }: { metrics: PortfolioMetrics }) {
   const activitiesByProject = useProjectsStore((s) => s.activitiesByProject);
-  const users = useUsersStore((s) => s.users);
-  const fetchUsers = useUsersStore((s) => s.fetchUsers);
-  useEffect(() => { if (users.length === 0) fetchUsers(); }, [users.length, fetchUsers]);
-
-  const consultants = users.filter((u) => u.active !== false && u.systemRole === "consultor");
+  const users = useActiveUsers();
+  const consultants = users.filter((u) => u.systemRole === "consultor");
+  const today = new Date().toISOString().slice(0, 10);
 
   return (
     <Card>
       <CardHeader className="flex items-center justify-between">
         <div>
-          <CardTitle>Consultores — carga e desempenho</CardTitle>
-          <p className="text-[11px] text-text-faint mt-0.5">cycle time, qualidade e uso do co-piloto</p>
+          <CardTitle>Consultores — carga</CardTitle>
+          <p className="text-[11px] text-text-faint mt-0.5">atividades atribuídas em projetos ativos e uso do co-piloto (30 dias)</p>
         </div>
         <Badge tone="blue" size="sm">{consultants.length} consultores</Badge>
       </CardHeader>
@@ -141,35 +133,25 @@ export function PipelineByConsultant() {
             <tr className="text-left text-[11px] uppercase tracking-wider text-text-faint border-b border-border">
               <th className="px-5 py-3 font-medium">Consultor</th>
               <th className="py-3 font-medium">Projetos</th>
-              <th className="py-3 font-medium w-[180px]">Atividades</th>
-              <th className="py-3 font-medium">Cycle time</th>
-              <th className="py-3 font-medium">Co-piloto</th>
-              <th className="py-3 font-medium">Qualidade</th>
-              <th className="px-5 py-3 font-medium">Utilização</th>
+              <th className="py-3 font-medium w-[180px]">Atividades concluídas</th>
+              <th className="py-3 font-medium">Atrasadas</th>
+              <th className="px-5 py-3 font-medium">Perguntas ao co-piloto</th>
             </tr>
           </thead>
           <tbody>
             {consultants.length === 0 && (
-              <tr><td colSpan={7} className="px-5 py-6 text-xs text-text-faint text-center">Nenhum consultor cadastrado.</td></tr>
+              <tr><td colSpan={5} className="px-5 py-6 text-xs text-text-faint text-center">Nenhum consultor cadastrado.</td></tr>
             )}
             {consultants.map((user) => {
-              const c = { userId: user.id, ...EMPTY_CONSULTANT_METRICS, ...(CONSULTANT_METRICS.find((x) => x.userId === user.id) ?? {}) };
-              const consultantProjects = projects.filter((p) => p.consultants.some((x) => x.id === user.id));
-              const totalAssigned = consultantProjects.reduce((acc, p) => {
-                const acts = activitiesByProject[p.id] ?? [];
-                return acc + acts.filter((a) => a.assignee?.id === user.id).length;
-              }, 0);
-              const totalDone = consultantProjects.reduce((acc, p) => {
-                const acts = activitiesByProject[p.id] ?? [];
-                return acc + acts.filter((a) => a.assignee?.id === user.id && a.status === "done").length;
-              }, 0);
-              const assigned = Math.max(totalAssigned, c.activitiesAssigned);
-              const done = Math.max(totalDone, c.activitiesDone);
-              const cycleTone = c.avgCycleTimeDays === 0 ? "neutral" : c.avgCycleTimeDays > 7 ? "red" : c.avgCycleTimeDays > 5.5 ? "amber" : "green";
-              const utilTone = c.utilizationPct < 30 ? "red" : c.utilizationPct > 90 ? "amber" : "green";
-
+              const projects = metrics.activeHealth.filter((h) => h.project.consultants.some((c) => c.id === user.id));
+              const acts = metrics.activeHealth.flatMap((h) =>
+                (activitiesByProject[h.project.id] ?? []).filter((a) => a.assignee?.id === user.id)
+              );
+              const done = acts.filter((a) => a.status === "done").length;
+              const late = acts.filter((a) => a.status !== "done" && a.dueDate && a.dueDate < today).length;
+              const questions = metrics.questionsByAuthor[user.id] ?? 0;
               return (
-                <tr key={c.userId} className="border-b border-border last:border-b-0 hover:bg-surface">
+                <tr key={user.id} className="border-b border-border last:border-b-0 hover:bg-surface">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
                       <Avatar initials={user.initials} size="sm" />
@@ -179,35 +161,15 @@ export function PipelineByConsultant() {
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 text-xs text-text-muted">{c.projectsActive}</td>
+                  <td className="py-3 text-xs text-text-muted">{projects.length}</td>
                   <td className="py-3 pr-4">
-                    <ProgressBar value={assigned > 0 ? (done / assigned) * 100 : 0} size="sm" />
-                    <div className="text-[10px] text-text-faint mt-0.5 font-mono">{done}/{assigned}</div>
+                    <ProgressBar value={acts.length > 0 ? (done / acts.length) * 100 : 0} size="sm" />
+                    <div className="text-[10px] text-text-faint mt-0.5 font-mono">{done}/{acts.length}</div>
                   </td>
                   <td className="py-3">
-                    {c.avgCycleTimeDays > 0 ? (
-                      <Badge tone={cycleTone as any} size="sm">{c.avgCycleTimeDays.toFixed(1)} d</Badge>
-                    ) : (
-                      <span className="text-[11px] text-text-faint">—</span>
-                    )}
+                    {late > 0 ? <Badge tone="red" size="sm">{late}</Badge> : <span className="text-[11px] text-text-faint">—</span>}
                   </td>
-                  <td className="py-3">
-                    <div className="text-xs text-text-primary font-mono">{c.copilotMessages}</div>
-                    <div className="text-[10px] text-text-faint">{c.copilotArtifacts} artefatos</div>
-                  </td>
-                  <td className="py-3">
-                    {c.qualityScore > 0 ? (
-                      <span className="text-xs font-mono text-text-primary">{c.qualityScore}</span>
-                    ) : (
-                      <span className="text-[11px] text-text-faint">—</span>
-                    )}
-                  </td>
-                  <td className="px-5 py-3">
-                    <div className="flex items-center gap-2">
-                      <ProgressBar value={c.utilizationPct} size="sm" className="w-20" tone={utilTone === "red" || utilTone === "amber" ? "amber" : "green"} />
-                      <span className="text-[11px] text-text-muted font-mono">{c.utilizationPct}%</span>
-                    </div>
-                  </td>
+                  <td className="px-5 py-3 text-xs font-mono text-text-primary">{questions}</td>
                 </tr>
               );
             })}

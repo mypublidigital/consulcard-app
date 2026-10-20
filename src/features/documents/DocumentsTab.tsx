@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react";
-import { FileText, FileSpreadsheet, FileBarChart, Plus, ExternalLink, File, Loader2, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+  FileText, FileSpreadsheet, FileBarChart, Plus, ExternalLink, File, Loader2, Trash2, Upload, Download, Sparkles, Link2,
+} from "lucide-react";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { createDocument, deleteDocument, listDocuments } from "@/lib/documents";
+import { createDocument, deleteDocument, listDocuments, uploadDocument } from "@/lib/documents";
+import { signedFileUrl, sizeLabel } from "@/lib/attachments";
 import { useAuthStore } from "@/store/auth-store";
 import type { Document } from "@/types";
 
-const ICONS: Record<Document["type"], any> = {
+const ICONS: Record<Document["type"], typeof File> = {
   ata: FileText,
   cronograma: FileSpreadsheet,
   report: FileBarChart,
@@ -23,14 +26,25 @@ const ICON_TONES: Record<Document["type"], string> = {
   outro: "bg-[#EDEEEF] text-text-muted",
 };
 
+const SOURCE_LABEL: Record<Document["source"], string> = {
+  link: "SharePoint",
+  upload: "Enviado",
+  copiloto: "Co-piloto",
+};
+
+/** Arquivo grande demais para o Storage do projeto (limite do bucket). */
+const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
+
 export function DocumentsTab({ projectId }: { projectId: string }) {
   const currentUser = useAuthStore((s) => s.currentUser);
   const [docs, setDocs] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
+  const uploadRef = useRef<HTMLInputElement>(null);
 
-  // Documentos agora vêm do banco (migração 0007): antes viviam em memória e
-  // sumiam ao sair da tela.
+  // Documentos vêm do banco: links do SharePoint, arquivos enviados aqui e os
+  // anexos/respostas do co-piloto (testes de 06/10, backlog 5).
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
@@ -41,7 +55,7 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
     return () => { cancelled = true; };
   }, [projectId]);
 
-  async function addDoc() {
+  async function addLink() {
     if (!currentUser?.id) return;
     const name = window.prompt("Nome do documento?");
     if (!name?.trim()) return;
@@ -53,11 +67,7 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
       return;
     }
     try {
-      const created = await createDocument(projectId, currentUser.id, {
-        name: name.trim(),
-        url: url.trim(),
-        type: "outro",
-      });
+      const created = await createDocument(projectId, currentUser.id, { name: name.trim(), url: url.trim(), type: "outro" });
       setDocs((d) => [created, ...d]);
       setError("");
     } catch (e) {
@@ -65,23 +75,73 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
     }
   }
 
-  async function removeDoc(id: string) {
-    const before = docs;
-    setDocs((d) => d.filter((x) => x.id !== id));
+  async function uploadFiles(files: File[]) {
+    if (!currentUser?.id || files.length === 0) return;
+    setUploading(true);
+    setError("");
+    const errors: string[] = [];
+    for (const f of files) {
+      if (f.size > MAX_UPLOAD_BYTES) {
+        errors.push(`"${f.name}" tem ${sizeLabel(f.size)} — o limite é 50 MB.`);
+        continue;
+      }
+      try {
+        const created = await uploadDocument(projectId, currentUser.id, f, { name: f.name, type: "outro" });
+        setDocs((d) => [created, ...d]);
+      } catch (e) {
+        errors.push(e instanceof Error ? e.message : `Falha ao enviar "${f.name}".`);
+      }
+    }
+    if (errors.length) setError(errors.join(" "));
+    setUploading(false);
+  }
+
+  async function open(d: Document, download = false) {
     try {
-      await deleteDocument(id);
+      if (d.storagePath) window.open(await signedFileUrl(d.storagePath, download ? d.name : undefined), "_blank", "noopener");
+      else if (d.sharepointUrl) window.open(d.sharepointUrl, "_blank", "noopener");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Não foi possível abrir o documento.");
+    }
+  }
+
+  async function removeDoc(d: Document) {
+    const what = d.storagePath ? "Excluir este arquivo do projeto?" : "Remover o vínculo deste documento?";
+    if (!window.confirm(`${what}\n\n${d.name}`)) return;
+    const before = docs;
+    setDocs((list) => list.filter((x) => x.id !== d.id));
+    try {
+      await deleteDocument(d);
     } catch (e) {
       setDocs(before);
       setError(e instanceof Error ? e.message : "Não foi possível remover o documento.");
     }
   }
 
+  const actions = (
+    <div className="flex items-center gap-2">
+      <Button size="sm" variant="secondary" leftIcon={<Link2 size={14} />} onClick={addLink}>
+        Link do SharePoint
+      </Button>
+      <Button size="sm" leftIcon={uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} onClick={() => uploadRef.current?.click()} disabled={uploading}>
+        {uploading ? "Enviando…" : "Enviar arquivo"}
+      </Button>
+    </div>
+  );
+
   return (
     <div>
+      <input
+        ref={uploadRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => { uploadFiles(Array.from(e.target.files ?? [])); e.target.value = ""; }}
+      />
       <div className="mb-3 rounded-md border border-border bg-surface px-4 py-2.5 text-xs text-text-muted">
-        Os documentos ficam no <strong>SharePoint</strong> da Consulcard; aqui o projeto guarda o vínculo.
-        A integração automática (listar e enviar arquivos direto do SharePoint) ainda não existe: por
-        enquanto o link é colado à mão.
+        Aqui ficam os arquivos do projeto: os enviados nesta aba, os <strong>anexos do co-piloto</strong> e as
+        respostas salvas por ele. Documentos que vivem no <strong>SharePoint</strong> podem ser vinculados pelo link
+        (a integração automática com o SharePoint ainda não existe).
       </div>
 
       {error && (
@@ -95,50 +155,63 @@ export function DocumentsTab({ projectId }: { projectId: string }) {
           {loading ? (
             <span className="inline-flex items-center gap-1.5"><Loader2 size={12} className="animate-spin" /> Carregando documentos...</span>
           ) : (
-            `${docs.length} documento${docs.length === 1 ? "" : "s"} vinculado${docs.length === 1 ? "" : "s"}`
+            `${docs.length} documento${docs.length === 1 ? "" : "s"}`
           )}
         </div>
-        <Button size="sm" leftIcon={<Plus size={14} />} onClick={addDoc}>
-          Documento
-        </Button>
+        {actions}
       </div>
 
-      {docs.length === 0 ? (
+      {!loading && docs.length === 0 ? (
         <Card>
           <EmptyState
             title="Nenhum documento ainda"
-            description="Vincule atas, cronogramas, status reports e entregáveis do projeto."
-            action={<Button size="sm" leftIcon={<Plus size={14} />} onClick={addDoc}>Documento</Button>}
+            description="Envie arquivos, vincule links do SharePoint ou salve respostas do co-piloto."
+            action={<Button size="sm" leftIcon={<Plus size={14} />} onClick={() => uploadRef.current?.click()}>Enviar arquivo</Button>}
           />
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {docs.map((d) => {
-            const Icon = ICONS[d.type];
+            const Icon = ICONS[d.type] ?? File;
             return (
               <Card key={d.id} className="relative hover:border-brand-primary/30">
                 <div className="p-4">
-                  <div className={`h-10 w-10 rounded-md flex items-center justify-center mb-3 ${ICON_TONES[d.type]}`}>
-                    <Icon size={18} />
+                  <div className="flex items-start justify-between mb-3">
+                    <div className={`h-10 w-10 rounded-md flex items-center justify-center ${ICON_TONES[d.type] ?? ICON_TONES.outro}`}>
+                      <Icon size={18} />
+                    </div>
+                    <span className="mr-6 inline-flex items-center gap-1 rounded-full bg-[#EDEEEF] px-2 py-0.5 text-[10px] text-text-muted">
+                      {d.source === "copiloto" && <Sparkles size={9} />}
+                      {SOURCE_LABEL[d.source]}
+                    </span>
                   </div>
-                  <div className="text-sm font-medium text-text-primary leading-snug line-clamp-2 min-h-[2.5em]">
+                  <div className="text-sm font-medium text-text-primary leading-snug line-clamp-2 min-h-[2.5em] break-words">
                     {d.name}
                   </div>
                   <div className="text-[11px] text-text-faint font-mono mt-2">
                     {new Date(d.date).toLocaleDateString("pt-BR")}
+                    {d.sizeBytes ? ` · ${sizeLabel(d.sizeBytes)}` : ""}
                   </div>
-                  <a
-                    href={d.sharepointUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 inline-flex items-center gap-1 text-xs text-brand-primary hover:underline"
-                  >
-                    <ExternalLink size={12} /> Abrir no SharePoint
-                  </a>
+                  <div className="mt-3 flex items-center gap-3">
+                    {d.storagePath ? (
+                      <>
+                        <button onClick={() => open(d)} className="inline-flex items-center gap-1 text-xs text-brand-primary hover:underline">
+                          <ExternalLink size={12} /> Abrir
+                        </button>
+                        <button onClick={() => open(d, true)} className="inline-flex items-center gap-1 text-xs text-brand-primary hover:underline">
+                          <Download size={12} /> Baixar
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={() => open(d)} className="inline-flex items-center gap-1 text-xs text-brand-primary hover:underline">
+                        <ExternalLink size={12} /> Abrir no SharePoint
+                      </button>
+                    )}
+                  </div>
                   <button
-                    onClick={() => removeDoc(d.id)}
+                    onClick={() => removeDoc(d)}
                     className="absolute right-2 top-2 rounded p-1 text-text-faint hover:bg-accent-red/10 hover:text-accent-red"
-                    title="Remover vínculo"
+                    title={d.storagePath ? "Excluir arquivo" : "Remover vínculo"}
                   >
                     <Trash2 size={12} />
                   </button>

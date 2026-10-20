@@ -117,5 +117,13 @@ export interface Document {
   name: string;
   type: "ata" | "cronograma" | "report" | "entregavel" | "outro";
   date: string;
-  sharepointUrl: string;
+  /** Link no SharePoint (documento vinculado à mão). */
+  sharepointUrl?: string;
+  /** Arquivo guardado no projeto (anexo do co-piloto ou resposta salva). */
+  storagePath?: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  /** link = SharePoint; upload/copiloto = arquivo guardado no sistema. */
+  source: "link" | "upload" | "copiloto";
+  createdBy?: string;
 }

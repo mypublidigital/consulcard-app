@@ -1,17 +1,17 @@
 import {
   FolderKanban,
-  DollarSign,
   TrendingUp,
   AlertTriangle,
   AlertCircle,
   Bot,
+  Clock,
   Crown,
   Shield,
 } from "lucide-react";
 import { PageWrapper } from "@/components/layout/PageWrapper";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
-import { PORTFOLIO_KPIS, COPILOT_USAGE_TRENDS } from "@/mocks/admin";
+import { useCopilotUsage, usePortfolioMetrics } from "@/features/admin/portfolio-metrics";
 import { PipelineByManager, PipelineByConsultant } from "@/features/admin/PipelinePanels";
 import { TopQuestions, PromptUsageMatrix } from "@/features/admin/UsagePanels";
 import { InsightsPanel } from "@/features/admin/InsightsPanel";
@@ -37,10 +37,6 @@ function AccessDenied() {
       </div>
     </PageWrapper>
   );
-}
-
-function formatBRL(v: number) {
-  return v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
 }
 
 function KpiCard({
@@ -84,6 +80,13 @@ export function AdminPage() {
   if (!currentUser?.systemRole || !ALLOWED_ROLES.includes(currentUser.systemRole)) {
     return <AccessDenied />;
   }
+  return <ExecutiveDashboard />;
+}
+
+function ExecutiveDashboard() {
+  const usage = useCopilotUsage(30);
+  const m = usePortfolioMetrics(usage.rows);
+  const k = m.kpis;
 
   return (
     <PageWrapper>
@@ -102,102 +105,65 @@ export function AdminPage() {
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs — todos calculados com os dados do sistema. */}
       <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 mb-5">
-        <KpiCard icon={<FolderKanban size={16} />} label="Projetos ativos" value={PORTFOLIO_KPIS.activeProjects} tone="brand" hint="em execução" />
-        <KpiCard
-          icon={<DollarSign size={16} />}
-          label="Pipeline ativo"
-          value={formatBRL(PORTFOLIO_KPIS.pipelineValueR)}
-          tone="green"
-          hint="receita comprometida"
-        />
-        <KpiCard
-          icon={<TrendingUp size={16} />}
-          label="Progresso médio"
-          value={`${PORTFOLIO_KPIS.avgPortfolioProgress}%`}
-          tone="brand"
-          hint="portfólio"
-        />
+        <KpiCard icon={<FolderKanban size={16} />} label="Projetos ativos" value={k.activeProjects} tone="brand" hint="não encerrados" />
+        <KpiCard icon={<TrendingUp size={16} />} label="Progresso médio" value={`${k.avgProgress}%`} tone="brand" hint="projetos ativos" />
         <KpiCard
           icon={<AlertTriangle size={16} />}
-          label="Atrasos"
-          value={PORTFOLIO_KPIS.delayedActivities}
-          tone="red"
-          hint="atividades"
+          label="Atividades atrasadas"
+          value={k.delayedActivities}
+          tone={k.delayedActivities ? "red" : "green"}
+          hint="prazo vencido"
         />
+        <KpiCard icon={<AlertCircle size={16} />} label="Pendências abertas" value={k.openPendencies} tone="amber" hint="projetos ativos" />
         <KpiCard
-          icon={<AlertCircle size={16} />}
-          label="Pendências abertas"
-          value={PORTFOLIO_KPIS.openPendencies}
-          tone="amber"
-          hint="todas as carteiras"
+          icon={<Clock size={16} />}
+          label="Pendências vencidas"
+          value={k.overduePendencies}
+          tone={k.overduePendencies ? "red" : "green"}
+          hint="prazo vencido"
         />
         <KpiCard
           icon={<Bot size={16} />}
           label="Adoção co-piloto"
-          value={`${PORTFOLIO_KPIS.copilotAdoption}%`}
+          value={usage.loading ? "…" : `${k.copilotAdoption}%`}
           tone="purple"
-          hint={`+${COPILOT_USAGE_TRENDS.monthlyDelta}% no mês`}
+          hint={`${k.projectsUsingCopilot} de ${k.activeProjects} projetos · 30 dias`}
         />
       </div>
 
       {/* Main grid: left content + right chat */}
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-4">
         <div className="space-y-4 min-w-0">
-          <InsightsPanel />
+          <InsightsPanel metrics={m} usageLoaded={!usage.loading && !usage.error} />
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <PipelineByManager />
+            <PipelineByManager metrics={m} />
             <TopQuestions />
           </div>
 
-          <PipelineByConsultant />
+          <PipelineByConsultant metrics={m} />
 
-          <PromptUsageMatrix />
+          <PromptUsageMatrix metrics={m} />
 
-          {/* Qualitative copilot analysis */}
+          {/* Antes: "análise qualitativa" com percentuais inventados. Agora, o uso real. */}
           <Card>
             <div className="p-5">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <h3 className="text-sm font-semibold text-text-primary">Análise qualitativa do co-piloto</h3>
-                  <p className="text-[11px] text-text-faint">comportamento de uso · últimos 30 dias</p>
+                  <h3 className="text-sm font-semibold text-text-primary">Uso do co-piloto</h3>
+                  <p className="text-[11px] text-text-faint">últimos 30 dias · dados do sistema</p>
                 </div>
-                <Badge tone="purple" size="sm">
-                  <Bot size={10} /> {COPILOT_USAGE_TRENDS.totalMessages} interações
-                </Badge>
+                {usage.error && <Badge tone="red" size="sm">Falha ao carregar</Badge>}
               </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-                <QualStat label="Mensagens / atividade" value={COPILOT_USAGE_TRENDS.avgMessagesPerActivity} hint="média" />
-                <QualStat label="Artefatos gerados" value={COPILOT_USAGE_TRENDS.totalArtifacts} hint="atas, relatórios, planos" />
-                <QualStat label="Tipo mais usado" value={COPILOT_USAGE_TRENDS.topUsedKind} hint="prompts" />
-                <QualStat label="Crescimento mensal" value={`+${COPILOT_USAGE_TRENDS.monthlyDelta}%`} hint="vs mês anterior" tone="green" />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <QualStat label="Perguntas" value={usage.loading ? "…" : k.copilotQuestions} hint="feitas ao co-piloto" />
+                <QualStat label="Pessoas usando" value={usage.loading ? "…" : k.copilotUsers} hint="usuários distintos" />
+                <QualStat label="Projetos usando" value={usage.loading ? "…" : k.projectsUsingCopilot} hint={`de ${k.activeProjects} ativos`} />
+                <QualStat label="Fichas da Biblioteca" value={usage.loading ? "…" : k.promptsUsed} hint="perguntas com prompt padrão" tone="green" />
               </div>
-
-              <div className="space-y-3 text-sm text-text-primary leading-relaxed">
-                <Finding
-                  tone="green"
-                  title="Padrão de uso maduro em atividades regulatórias"
-                  text="76% das interações em projetos regulatórios envolvem prompts especialistas, indicando consultores se apoiando no co-piloto para tarefas de alto valor."
-                />
-                <Finding
-                  tone="amber"
-                  title="Uso concentrado em horário comercial"
-                  text="92% das interações entre 9h-18h. Oportunidade de educar a equipe sobre uso assíncrono para preparo de reuniões e revisão noturna."
-                />
-                <Finding
-                  tone="blue"
-                  title="Geração de ata é o caso de uso mais difundido"
-                  text="A geração de ata a partir de transcrição representa 28% dos artefatos. Considerar automação no calendário para sugestão proativa após reuniões."
-                />
-                <Finding
-                  tone="red"
-                  title="Sub-utilização no projeto KYC/Onboarding Digital"
-                  text="Apenas 18 mensagens nos últimos 30 dias contra média de 79 por projeto. Risco de execução abaixo do padrão Consulcard sem intervenção."
-                />
-              </div>
+              {usage.error && <p className="mt-3 text-xs text-accent-red">{usage.error}</p>}
             </div>
           </Card>
         </div>
@@ -228,32 +194,6 @@ function QualStat({
         {value}
       </div>
       {hint && <div className="text-[10px] text-text-faint">{hint}</div>}
-    </div>
-  );
-}
-
-function Finding({
-  tone,
-  title,
-  text,
-}: {
-  tone: "green" | "amber" | "blue" | "red";
-  title: string;
-  text: string;
-}) {
-  const dots = {
-    green: "bg-accent-green",
-    amber: "bg-accent-amber",
-    blue: "bg-brand-primary",
-    red: "bg-accent-red",
-  };
-  return (
-    <div className="flex items-start gap-2.5">
-      <span className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${dots[tone]}`} />
-      <div>
-        <div className="text-sm font-medium text-text-primary">{title}</div>
-        <p className="text-xs text-text-muted mt-0.5">{text}</p>
-      </div>
     </div>
   );
 }

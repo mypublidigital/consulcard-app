@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { DIRECTOR_SUGGESTIONS } from "@/mocks/admin";
-import { sendChatMessage, type ChatMessage } from "@/lib/chat";
+import { sendChatWithContinuation, type ChatMessage } from "@/lib/chat";
 import { useProjectsStore } from "@/store/projects-store";
 import { useAuthStore } from "@/store/auth-store";
 import { cn } from "@/lib/utils";
@@ -20,7 +20,7 @@ const INITIAL: Message[] = [
   {
     role: "assistant",
     content:
-      "Olá, diretor. Posso responder sobre status de projetos, cycle time, adoção do co-piloto, performance por consultor ou qualquer indicador do portfólio. O que quer saber?",
+      "Olá! Posso responder sobre o status dos projetos, atrasos, pendências, carga por consultor e uso do co-piloto, com base nos dados do sistema. O que quer saber?",
   },
 ];
 
@@ -90,7 +90,7 @@ export function DirectorChat() {
 
     try {
       // A saudação é do app, não da conversa.
-      const result = await sendChatMessage(
+      const result = await sendChatWithContinuation(
         history.filter((m) => !(m.role === "assistant" && m === INITIAL[0])),
         { agentType: "director", portfolio: buildPortfolio() }
       );

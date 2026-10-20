@@ -83,16 +83,22 @@ function Captcha({
 function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
   const requestPasswordReset = useAuthStore((s) => s.requestPasswordReset);
   const [email, setEmail] = useState("");
-  const [status, setStatus] = useState<"idle" | "sent">("idle");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent">("idle");
   const [error, setError] = useState("");
 
-  function handleSend() {
+  async function handleSend() {
     if (!email.trim() || !email.includes("@")) {
       setError("Informe um e-mail válido.");
       return;
     }
-    requestPasswordReset(email);
-    // Always show success to not reveal which emails exist
+    setStatus("sending");
+    const r = await requestPasswordReset(email.trim());
+    if (!r.ok) {
+      setError(r.error ?? "Não foi possível enviar agora.");
+      setStatus("idle");
+      return;
+    }
+    // Sucesso sempre que não houver erro de limite: não revela quais e-mails existem.
     setStatus("sent");
   }
 
@@ -108,11 +114,15 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
               <h3 className="text-base font-semibold text-text-primary">E-mail enviado</h3>
               <p className="text-sm text-text-muted mt-1.5 leading-relaxed">
                 Se o endereço <strong>{email}</strong> estiver cadastrado, você
-                receberá as instruções de recuperação de senha em instantes.
+                receberá um link para criar uma nova senha. O link abre a tela de nova
+                senha — o acesso só é liberado depois de defini-la.
               </p>
             </div>
+            {/* GAP #4: o e-mail chegou 3 horas depois. Enquanto o envio não sai por
+                um servidor de e-mail próprio, a alternativa imediata é o admin. */}
             <p className="text-xs text-text-faint">
-              Não encontrou? Verifique a caixa de spam ou contate o administrador do sistema.
+              O e-mail pode levar alguns minutos. Não chegou? Verifique o spam ou peça ao
+              administrador uma <strong>senha temporária</strong> (tela Usuários) — é imediato.
             </p>
             <button
               onClick={onClose}
@@ -168,9 +178,10 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
 
               <button
                 onClick={handleSend}
-                className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-primary text-white py-2.5 text-sm font-medium hover:bg-[#243140] transition-colors"
+                disabled={status === "sending"}
+                className="w-full flex items-center justify-center gap-2 rounded-lg bg-brand-primary text-white py-2.5 text-sm font-medium hover:bg-[#243140] transition-colors disabled:opacity-60"
               >
-                <Send size={14} />
+                {status === "sending" ? <RefreshCw size={14} className="animate-spin" /> : <Send size={14} />}
                 Enviar instruções
               </button>
             </div>
@@ -184,11 +195,14 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
 // ─── Login Page ───────────────────────────────────────────────────────────────
 export function LoginPage() {
   const login = useAuthStore((s) => s.login);
+  const recoveryError = useAuthStore((s) => s.recoveryError);
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
+  // Desmarcado por padrão: fechou o navegador, precisa entrar de novo (GAP #1).
+  const [remember, setRemember] = useState(false);
+  const [error, setError] = useState(recoveryError ?? "");
   const [loading, setLoading] = useState(false);
   const [showForgot, setShowForgot] = useState(false);
   const [fieldErrors, setFieldErrors] = useState({ email: "", password: "" });
@@ -213,7 +227,7 @@ export function LoginPage() {
     if (fe.email || fe.password) return;
 
     setLoading(true);
-    const result = await login(email, password);
+    const result = await login(email, password, remember);
     if (!result.ok) {
       setError(result.error ?? "Erro ao autenticar.");
     }
@@ -325,6 +339,23 @@ export function LoginPage() {
                 </p>
               )}
             </div>
+
+            {/* Manter conectado */}
+            <label className="flex items-center gap-2 text-xs text-text-muted cursor-pointer select-none">
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={remember}
+                onClick={() => setRemember((v) => !v)}
+                className="text-brand-primary"
+              >
+                {remember ? <CheckSquare size={16} /> : <Square size={16} className="text-text-faint" />}
+              </button>
+              <span onClick={() => setRemember((v) => !v)}>
+                Manter conectado neste computador
+                <span className="block text-[10px] text-text-faint">Desmarcado: fechando todas as abas do sistema, será preciso entrar de novo.</span>
+              </span>
+            </label>
 
             {/* Submit */}
             <button

@@ -1,9 +1,9 @@
-import { Bell, Plus, ChevronRight, LogOut } from "lucide-react";
+import { Plus, ChevronRight, LogOut } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/Button";
-import { Avatar } from "@/components/ui/Avatar";
 import { useProjectsStore } from "@/store/projects-store";
 import { useAuthStore } from "@/store/auth-store";
+import { NotificationsMenu, ProfileMenu } from "./UserMenus";
 
 function buildCrumbs(pathname: string, projects: { id: string; name: string; client: string }[]) {
   const segs = pathname.split("/").filter(Boolean);
@@ -37,12 +37,9 @@ export function Topbar() {
   const crumbs = buildCrumbs(location.pathname, projects);
   const onClient = location.pathname.startsWith("/client/");
 
-  const currentUser = useAuthStore((s) => s.currentUser);
   const logout = useAuthStore((s) => s.logout);
 
   if (onClient) return null;
-
-  const initials = currentUser?.initials ?? "??";
 
   return (
     <header className="h-14 shrink-0 border-b border-border bg-white">
@@ -68,14 +65,8 @@ export function Topbar() {
               Novo Projeto
             </Button>
           </Link>
-          <button
-            aria-label="Notificações"
-            className="relative h-9 w-9 rounded-md hover:bg-[#EDEEEF] flex items-center justify-center text-text-muted"
-          >
-            <Bell size={16} />
-            <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-accent-red" />
-          </button>
-          <Avatar initials={initials} size="sm" tone="brand" />
+          <NotificationsMenu />
+          <ProfileMenu />
           <button
             onClick={logout}
             title="Sair"
