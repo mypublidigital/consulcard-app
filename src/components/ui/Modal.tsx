@@ -16,14 +16,16 @@ export function Modal({
   maxWidth?: string;
 }) {
   if (!open) return null;
+  // Altura máxima = tela: em notebook ou com zoom, a janela maior que a tela
+  // ficava cortada e sem barra de rolagem. Título fixo, conteúdo rola.
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className={cn("w-full rounded-lg bg-white shadow-xl border border-border", maxWidth)}
+        className={cn("flex w-full max-h-[calc(100dvh-2rem)] flex-col rounded-lg bg-white shadow-xl border border-border", maxWidth)}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
-          <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <div className="flex shrink-0 items-center justify-between px-5 py-4 border-b border-border">
             <h2 className="text-sm font-semibold text-text-primary">{title}</h2>
             <button
               aria-label="Fechar"
@@ -34,7 +36,7 @@ export function Modal({
             </button>
           </div>
         )}
-        <div className="p-5">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-5">{children}</div>
       </div>
     </div>
   );

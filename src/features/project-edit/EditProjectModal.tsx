@@ -51,8 +51,8 @@ export function EditProjectModal({ project, onClose }: { project: Project; onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-lg bg-white rounded-xl shadow-2xl border border-border">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border rounded-t-xl">
+      <div className="flex w-full max-w-lg max-h-[calc(100dvh-2rem)] flex-col bg-white rounded-xl shadow-2xl border border-border">
+        <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-border rounded-t-xl">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-md bg-brand-primary/10 text-brand-primary flex items-center justify-center">
               <Pencil size={15} />
@@ -67,7 +67,8 @@ export function EditProjectModal({ project, onClose }: { project: Project; onClo
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        {/* Conteúdo rola; botões ficam fixos no rodapé, sempre visíveis. */}
+        <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
           <Field label="Nome do projeto" required>
             <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
           </Field>
@@ -137,8 +138,10 @@ export function EditProjectModal({ project, onClose }: { project: Project; onClo
               placeholder="migração, regulatório, ..."
             />
           </Field>
+        </div>
 
-          <div className="flex gap-2 pt-1">
+        <div className="shrink-0 border-t border-border px-6 py-4">
+          <div className="flex gap-2">
             <Button variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
             <Button
               onClick={handleSave}

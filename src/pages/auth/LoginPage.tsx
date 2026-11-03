@@ -104,7 +104,7 @@ function ForgotPasswordModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow-2xl border border-border overflow-hidden">
+      <div className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-2xl shadow-2xl border border-border">
         {status === "sent" ? (
           <div className="p-8 flex flex-col items-center text-center gap-4">
             <div className="h-14 w-14 rounded-full bg-accent-green/10 text-accent-green flex items-center justify-center">

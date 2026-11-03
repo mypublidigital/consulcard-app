@@ -49,7 +49,7 @@ export function ProfileMenu() {
       </button>
 
       {open && (
-        <div role="menu" className="absolute right-0 top-11 z-50 w-72 rounded-lg border border-border bg-white shadow-xl">
+        <div role="menu" className="absolute right-0 top-11 z-50 w-72 max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-lg border border-border bg-white shadow-xl">
           <div className="flex items-center gap-3 border-b border-border p-4">
             <Avatar initials={currentUser.initials} size="md" tone="brand" />
             <div className="min-w-0">
@@ -83,7 +83,7 @@ export function ProfileMenu() {
 
       {changing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setChanging(false)}>
-          <div className="w-full max-w-sm rounded-2xl border border-border bg-white shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto rounded-2xl border border-border bg-white shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between border-b border-border px-6 py-4">
               <h3 className="text-base font-semibold text-text-primary">Alterar senha</h3>
               <button onClick={() => setChanging(false)} className="text-text-faint hover:text-text-primary" aria-label="Fechar">
@@ -202,7 +202,7 @@ export function NotificationsMenu() {
               Suas pendências e atividades — e as dos projetos que você gerencia — vencidas ou vencendo em até {SOON_DAYS} dias.
             </div>
           </div>
-          <div className="max-h-96 overflow-y-auto divide-y divide-border">
+          <div className="max-h-[min(24rem,calc(100dvh-10rem))] overflow-y-auto divide-y divide-border">
             {notices.length === 0 ? (
               <div className="flex flex-col items-center gap-2 px-4 py-8 text-center text-xs text-text-faint">
                 <CheckCircle2 size={20} className="text-accent-green" />

@@ -234,9 +234,9 @@ function AddUserModal({ onClose }: AddUserModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-border">
+      <div className="flex w-full max-w-md max-h-[calc(100dvh-2rem)] flex-col bg-white rounded-xl shadow-2xl border border-border">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border rounded-t-xl">
+        <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-border rounded-t-xl">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-md bg-brand-primary/10 text-brand-primary flex items-center justify-center">
               <UserPlus size={16} />
@@ -257,7 +257,7 @@ function AddUserModal({ onClose }: AddUserModalProps) {
 
         {added ? (
           /* Success state */
-          <div className="p-6 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
             <div className="flex items-center gap-3 p-4 rounded-lg bg-accent-green/10 border border-accent-green/20">
               <div className="h-10 w-10 rounded-full bg-accent-green/20 text-accent-green flex items-center justify-center font-semibold text-sm shrink-0">
                 {added.initials}
@@ -296,7 +296,7 @@ function AddUserModal({ onClose }: AddUserModalProps) {
           </div>
         ) : (
           /* Form state */
-          <div className="p-6 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
             {/* Name */}
             <div>
               <label className="block text-xs font-medium text-text-primary mb-1.5">
@@ -482,9 +482,9 @@ function EditUserModal({ user, onClose }: EditUserModalProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-md bg-white rounded-xl shadow-2xl border border-border">
+      <div className="flex w-full max-w-md max-h-[calc(100dvh-2rem)] flex-col bg-white rounded-xl shadow-2xl border border-border">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border rounded-t-xl">
+        <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-border rounded-t-xl">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-md bg-brand-primary/10 text-brand-primary flex items-center justify-center">
               <Pencil size={15} />
@@ -499,7 +499,7 @@ function EditUserModal({ user, onClose }: EditUserModalProps) {
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
           {/* Avatar preview */}
           <div className="flex items-center gap-3 p-3 rounded-lg bg-surface border border-border">
             <Avatar
@@ -643,7 +643,7 @@ function EditUserModal({ user, onClose }: EditUserModalProps) {
 function DeleteConfirm({ user, onConfirm, onCancel }: { user: User; onConfirm: () => void; onCancel: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-      <div className="w-full max-w-sm bg-white rounded-xl shadow-2xl border border-border p-6 space-y-4">
+      <div className="w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-white rounded-xl shadow-2xl border border-border p-6 space-y-4">
         <div className="flex items-center gap-3">
           <div className="h-10 w-10 rounded-full bg-accent-red/10 text-accent-red flex items-center justify-center">
             <Trash2 size={18} />
