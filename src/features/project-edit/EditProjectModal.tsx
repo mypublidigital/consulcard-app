@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { X, Save, Check, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select } from "@/components/ui/Input";
+import { PeoplePicker } from "@/components/ui/PeoplePicker";
 import { useProjectsStore } from "@/store/projects-store";
 import { useUsersStore } from "@/store/users-store";
 import { PROJECT_STATUS_OPTIONS } from "@/components/ui/StatusPills";
@@ -98,22 +99,12 @@ export function EditProjectModal({ project, onClose }: { project: Project; onClo
               </Select>
             </Field>
           </div>
-          <Field label="Consultores alocados" hint="Selecione múltiplos com Ctrl/Cmd">
-            <select
-              multiple
+          <Field label="Consultores alocados" hint="Marque quantos forem necessários">
+            <PeoplePicker
+              people={consultantOptions}
               value={form.consultantIds}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  consultantIds: Array.from(e.target.selectedOptions).map((o) => o.value),
-                }))
-              }
-              className="min-h-[110px] w-full rounded-md border border-border bg-white px-2 py-1.5 text-sm"
-            >
-              {consultantOptions.map((u) => (
-                <option key={u.id} value={u.id}>{u.name}</option>
-              ))}
-            </select>
+              onChange={(ids) => setForm((f) => ({ ...f, consultantIds: ids }))}
+            />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Data de kick-off">

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell, CheckCircle2, KeyRound, LogOut, Mail, AlertCircle, Clock, X } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
@@ -7,6 +7,7 @@ import { useAuthStore } from "@/store/auth-store";
 import { useProjectsStore } from "@/store/projects-store";
 import { ROLE_LABELS } from "@/mocks/users";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/lib/supabase";
 
 /** Fecha o painel ao clicar fora ou apertar Esc. */
 function useDismiss(open: boolean, close: () => void) {
@@ -134,7 +135,7 @@ function useNotices(): Notice[] {
       const mine = "id" in p.owner && p.owner.id === currentUser.id;
       if (!mine && !managed.has(p.projectId)) continue;
       out.push({
-        key: `p-${p.id}`,
+        key: `p-${p.id}@${p.dueDate}`,
         projectId: p.projectId,
         projectName: nameOf.get(p.projectId) ?? "Projeto",
         tab: "pendencies",
@@ -150,7 +151,7 @@ function useNotices(): Notice[] {
         const mine = a.assignee?.id === currentUser.id;
         if (!mine && !managed.has(projectId)) continue;
         out.push({
-          key: `a-${a.id}`,
+          key: `a-${a.id}@${a.dueDate}`,
           projectId,
           projectName: nameOf.get(projectId) ?? "Projeto",
           tab: "activities",
@@ -165,12 +166,50 @@ function useNotices(): Notice[] {
   }, [currentUser, projects, pendencies, activitiesByProject]);
 }
 
+/**
+ * Notificações já lidas (testes de 22/10, GAP #01: o número do sino não
+ * baixava depois de abrir a notificação). Gravadas no banco, valem em
+ * qualquer computador. A notificação continua na lista — apagada — até a
+ * pendência ser resolvida ou a atividade concluída.
+ */
+function useNotificationReads(userId: string | undefined) {
+  const [read, setRead] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    setRead(new Set());
+    if (!userId) return;
+    let cancelled = false;
+    supabase
+      .from("notification_reads")
+      .select("notice_key")
+      .eq("user_id", userId)
+      .then(({ data }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if (!cancelled && data) setRead(new Set((data as any[]).map((r) => r.notice_key as string)));
+      });
+    return () => { cancelled = true; };
+  }, [userId]);
+
+  const markRead = useCallback((keys: string[]) => {
+    if (!userId || keys.length === 0) return;
+    setRead((cur) => new Set([...cur, ...keys]));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase.from("notification_reads") as any)
+      .upsert(keys.map((k) => ({ user_id: userId, notice_key: k })), { onConflict: "user_id,notice_key", ignoreDuplicates: true })
+      .then(({ error }: { error: { message: string } | null }) => { if (error) console.error("notification_reads:", error.message); });
+  }, [userId]);
+
+  return { read, markRead };
+}
+
 export function NotificationsMenu() {
   const notices = useNotices();
+  const currentUser = useAuthStore((s) => s.currentUser);
+  const { read, markRead } = useNotificationReads(currentUser?.id);
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const ref = useDismiss(open, () => setOpen(false));
-  const overdue = notices.filter((n) => n.overdue).length;
+  const unread = notices.filter((n) => !read.has(n.key));
+  const unreadOverdue = unread.filter((n) => n.overdue).length;
 
   return (
     <div ref={ref} className="relative">
@@ -179,17 +218,17 @@ export function NotificationsMenu() {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="relative h-9 w-9 rounded-md hover:bg-[#EDEEEF] flex items-center justify-center text-text-muted"
-        title={notices.length ? `${notices.length} item(ns) vencido(s) ou vencendo` : "Sem pendências vencendo"}
+        title={unread.length ? `${unread.length} notificação(ões) não lida(s)` : "Nenhuma notificação nova"}
       >
         <Bell size={16} />
-        {notices.length > 0 && (
+        {unread.length > 0 && (
           <span
             className={cn(
               "absolute -top-0.5 -right-0.5 min-w-[16px] h-4 rounded-full px-1 text-[10px] font-semibold leading-4 text-white text-center",
-              overdue ? "bg-accent-red" : "bg-accent-amber"
+              unreadOverdue ? "bg-accent-red" : "bg-accent-amber"
             )}
           >
-            {notices.length > 9 ? "9+" : notices.length}
+            {unread.length > 9 ? "9+" : unread.length}
           </span>
         )}
       </button>
@@ -197,9 +236,19 @@ export function NotificationsMenu() {
       {open && (
         <div className="absolute right-0 top-11 z-50 w-96 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-white shadow-xl">
           <div className="border-b border-border px-4 py-3">
-            <div className="text-sm font-semibold text-text-primary">Notificações</div>
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-sm font-semibold text-text-primary">
+                Notificações{unread.length > 0 && <span className="ml-1 font-normal text-text-muted">· {unread.length} não lida{unread.length === 1 ? "" : "s"}</span>}
+              </div>
+              {unread.length > 0 && (
+                <button onClick={() => markRead(unread.map((n) => n.key))} className="shrink-0 text-[11px] text-brand-primary hover:underline">
+                  Marcar todas como lidas
+                </button>
+              )}
+            </div>
             <div className="text-[11px] text-text-faint">
               Suas pendências e atividades — e as dos projetos que você gerencia — vencidas ou vencendo em até {SOON_DAYS} dias.
+              O número conta as não lidas; o item sai da lista quando a pendência é resolvida ou a atividade concluída.
             </div>
           </div>
           <div className="max-h-[min(24rem,calc(100dvh-10rem))] overflow-y-auto divide-y divide-border">
@@ -209,17 +258,19 @@ export function NotificationsMenu() {
                 Nada vencido ou vencendo. Tudo em dia.
               </div>
             ) : (
-              notices.map((n) => (
+              notices.map((n) => {
+                const isRead = read.has(n.key);
+                return (
                 <button
                   key={n.key}
-                  onClick={() => { setOpen(false); navigate(`/projects/${n.projectId}?tab=${n.tab}`); }}
-                  className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-surface"
+                  onClick={() => { markRead([n.key]); setOpen(false); navigate(`/projects/${n.projectId}?tab=${n.tab}`); }}
+                  className={cn("flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-surface", !isRead && "bg-brand-primary/[0.04]")}
                 >
                   {n.overdue
-                    ? <AlertCircle size={14} className="mt-0.5 shrink-0 text-accent-red" />
-                    : <Clock size={14} className="mt-0.5 shrink-0 text-accent-amber" />}
+                    ? <AlertCircle size={14} className={cn("mt-0.5 shrink-0", isRead ? "text-text-faint" : "text-accent-red")} />
+                    : <Clock size={14} className={cn("mt-0.5 shrink-0", isRead ? "text-text-faint" : "text-accent-amber")} />}
                   <div className="min-w-0 flex-1">
-                    <div className="text-xs text-text-primary line-clamp-2">{n.text}</div>
+                    <div className={cn("text-xs line-clamp-2", isRead ? "text-text-muted" : "text-text-primary font-medium")}>{n.text}</div>
                     <div className="mt-0.5 text-[10px] text-text-faint">
                       {n.kind} · {n.projectName} ·{" "}
                       <span className={n.overdue ? "text-accent-red font-medium" : ""}>
@@ -228,8 +279,10 @@ export function NotificationsMenu() {
                       </span>
                     </div>
                   </div>
+                  {!isRead && <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-brand-primary" aria-label="não lida" />}
                 </button>
-              ))
+                );
+              })
             )}
           </div>
         </div>

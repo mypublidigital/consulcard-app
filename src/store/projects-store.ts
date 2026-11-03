@@ -17,7 +17,8 @@ interface ProjectsState {
   fetchProjects: () => Promise<void>;
   /** Descarta tudo ao sair: o próximo usuário do navegador não vê dados do anterior. */
   reset: () => void;
-  addProject: (p: Project, typeId: string) => Promise<void>;
+  /** chosen: atividades revisadas no cadastro; sem ela, usa o modelo do tipo. */
+  addProject: (p: Project, typeId: string, chosen?: Activity[]) => Promise<void>;
   updateActivityStatus: (projectId: string, activityId: string, status: ActivityStatusValue) => Promise<void>;
   addActivity: (projectId: string, activity: Activity) => Promise<void>;
   addPendency: (p: Pendency) => Promise<void>;
@@ -146,8 +147,9 @@ function activityToRow(projectId: string, a: Activity) {
  * e a coluna activities.id é chave primária — sem o prefixo, o segundo projeto
  * do mesmo tipo colidiria. Mesmo formato do backfill (migração 0006).
  */
-function templateActivities(projectId: string, typeId: string, startDate: string): Activity[] {
-  return getActivitiesForType(typeId).map((a, idx) => {
+function templateActivities(projectId: string, typeId: string, startDate: string, chosen?: Activity[]): Activity[] {
+  // Testes de 22/10, GAP #02: a lista pode ter sido editada na revisão do cadastro.
+  return (chosen ?? getActivitiesForType(typeId)).map((a, idx) => {
     const due = new Date(startDate);
     due.setDate(due.getDate() + (idx + 1) * 14);
     return {
@@ -277,8 +279,8 @@ export const useProjectsStore = create<ProjectsState>((set, get) => ({
     });
   },
 
-  addProject: async (p, typeId) => {
-    const acts = templateActivities(p.id, typeId, p.startDate);
+  addProject: async (p, typeId, chosen) => {
+    const acts = templateActivities(p.id, typeId, p.startDate, chosen);
     // Optimistic update
     set((s) => ({
       projects: [p, ...s.projects],

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ArrowRight, Check, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckSquare, Plus, Sparkles, Square, Trash2, X } from "lucide-react";
 import { PageWrapper, PageHeader } from "@/components/layout/PageWrapper";
 import { Card, CardBody } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Select } from "@/components/ui/Input";
+import { PeoplePicker } from "@/components/ui/PeoplePicker";
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { PROJECT_TYPES, MACRO_COLOR_CLASSES } from "@/mocks/project-types";
@@ -13,7 +14,7 @@ import { useProjectsStore } from "@/store/projects-store";
 import { useUsersStore } from "@/store/users-store";
 import { initials, cn } from "@/lib/utils";
 import { ComplexityBadge, LLMImpact } from "@/components/ui/StatusPills";
-import type { Project, User } from "@/types";
+import type { Activity, Project, User } from "@/types";
 
 const SIZES = [
   { id: "P1", label: "P1", description: "Pequeno · até 4 semanas" },
@@ -86,11 +87,22 @@ export function NewProjectPage() {
     () => (form.projectType ? getActivitiesForType(form.projectType) : []),
     [form.projectType]
   );
-  const avgLLM = useMemo(() => {
-    if (previewActivities.length === 0) return 0;
-    const avg = previewActivities.reduce((a, x) => a + (x.llmIndexMin + x.llmIndexMax) / 2, 0) / previewActivities.length;
-    return Math.round(avg);
+  // Atividades que serão criadas (testes de 22/10, GAP #02): partem do modelo
+  // do tipo de projeto, mas podem ser desmarcadas, renomeadas e acrescidas.
+  // Trocar o tipo recomeça a lista a partir do novo modelo.
+  const [drafts, setDrafts] = useState<DraftActivity[]>([]);
+  useEffect(() => {
+    setDrafts(previewActivities.map((a) => ({ ...a, included: true })));
   }, [previewActivities]);
+  const chosenActivities = useMemo(
+    () => drafts.filter((d) => d.included && d.label.trim()).map(({ included: _i, custom: _c, ...a }) => ({ ...a, label: a.label.trim() })),
+    [drafts]
+  );
+  const avgLLM = useMemo(() => {
+    if (chosenActivities.length === 0) return 0;
+    const avg = chosenActivities.reduce((a, x) => a + (x.llmIndexMin + x.llmIndexMax) / 2, 0) / chosenActivities.length;
+    return Math.round(avg);
+  }, [chosenActivities]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((f) => ({ ...f, [key]: value }));
@@ -142,13 +154,13 @@ export function NewProjectPage() {
       manager,
       consultants,
       progress: 0,
-      activitiesTotal: previewActivities.length,
+      activitiesTotal: chosenActivities.length,
       activitiesDone: 0,
       activitiesDelayed: 0,
       lastUpdate: new Date().toISOString().slice(0, 10),
       tags: form.tags,
     };
-    addProject(project, form.projectType);
+    addProject(project, form.projectType, chosenActivities);
     navigate(`/projects/${id}`);
   }
 
@@ -176,7 +188,7 @@ export function NewProjectPage() {
             />
           )}
           {step === 3 && (
-            <Step3 form={form} previewActivities={previewActivities} avgLLM={avgLLM} users={users} />
+            <Step3 form={form} drafts={drafts} setDrafts={setDrafts} chosenCount={chosenActivities.length} avgLLM={avgLLM} users={users} />
           )}
 
           <div className="flex items-center justify-between mt-8 pt-5 border-t border-border">
@@ -283,24 +295,8 @@ function Step1({
           ))}
         </Select>
       </Field>
-      <Field label="Consultores alocados" hint="Selecione múltiplos com Ctrl/Cmd">
-        <select
-          multiple
-          value={form.consultantIds}
-          onChange={(e) =>
-            update(
-              "consultantIds",
-              Array.from(e.target.selectedOptions).map((o) => o.value)
-            )
-          }
-          className="min-h-[90px] rounded-md border border-border bg-white px-2 py-1.5 text-sm"
-        >
-          {consultants.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.name}
-            </option>
-          ))}
-        </select>
+      <Field label="Consultores alocados" hint="Marque quantos forem necessários">
+        <PeoplePicker people={consultants} value={form.consultantIds} onChange={(ids) => update("consultantIds", ids)} />
       </Field>
       <Field label="Data de kick-off" required error={errors.startDate}>
         <Input type="date" value={form.startDate} onChange={(e) => update("startDate", e.target.value)} />
@@ -525,14 +521,20 @@ function Step2({
   );
 }
 
+type DraftActivity = Activity & { included: boolean; custom?: boolean };
+
 function Step3({
   form,
-  previewActivities,
+  drafts,
+  setDrafts,
+  chosenCount,
   avgLLM,
   users,
 }: {
   form: FormState;
-  previewActivities: ReturnType<typeof getActivitiesForType>;
+  drafts: DraftActivity[];
+  setDrafts: React.Dispatch<React.SetStateAction<DraftActivity[]>>;
+  chosenCount: number;
   avgLLM: number;
   users: User[];
 }) {
@@ -540,6 +542,33 @@ function Step3({
   const projectType = macro?.types.find((t) => t.id === form.projectType);
   const manager = users.find((u) => u.id === form.managerId);
   const consultants = users.filter((u) => form.consultantIds.includes(u.id));
+  const [newLabel, setNewLabel] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+
+  const patch = (id: string, p: Partial<DraftActivity>) =>
+    setDrafts((list) => list.map((d) => (d.id === id ? { ...d, ...p } : d)));
+
+  function addCustom() {
+    const label = newLabel.trim();
+    if (!label) return;
+    setDrafts((list) => [
+      ...list,
+      {
+        id: `custom-${Date.now().toString(36)}`,
+        label,
+        description: newDescription.trim(),
+        complexity: 2,
+        llmImpact: "medium",
+        llmIndexMin: 20,
+        llmIndexMax: 40,
+        phase: "execucao",
+        included: true,
+        custom: true,
+      },
+    ]);
+    setNewLabel("");
+    setNewDescription("");
+  }
 
   return (
     <div className="space-y-6">
@@ -567,28 +596,95 @@ function Step3({
           <Row label="Tipo" value={projectType?.label ?? "—"} />
           <Row label="Porte" value={form.size || "—"} />
           <Row label="Tags" value={form.tags.length > 0 ? form.tags.map((t) => `#${t}`).join(" ") : "—"} />
-          <Row label="Atividades a carregar" value={`${previewActivities.length} atividades`} />
+          <Row label="Atividades a carregar" value={`${chosenCount} atividades`} />
           <Row label="Impacto IA médio" value={`${avgLLM}%`} />
         </div>
       </div>
 
+      {/* Testes de 22/10, GAP #02: a lista era só leitura. */}
       <div className="pt-5 border-t border-border">
-        <h3 className="text-sm font-semibold text-text-primary mb-3">
-          Atividades que serão carregadas <span className="text-text-muted font-normal">({previewActivities.length})</span>
-        </h3>
+        <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-sm font-semibold text-text-primary">
+            Atividades que serão carregadas{" "}
+            <span className="text-text-muted font-normal">({chosenCount} de {drafts.length})</span>
+          </h3>
+          <span className="text-[11px] text-text-faint">
+            Desmarque o que não se aplica, clique no nome para renomear e inclua atividades no fim da lista.
+          </span>
+        </div>
         <div className="rounded-lg border border-border bg-surface divide-y divide-border">
-          {previewActivities.map((a, idx) => (
-            <div key={a.id} className="px-4 py-3 flex items-center gap-3">
+          {drafts.map((a, idx) => (
+            <div key={a.id} className={cn("px-4 py-2.5 flex items-center gap-3", !a.included && "opacity-50")}>
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={a.included}
+                onClick={() => patch(a.id, { included: !a.included })}
+                title={a.included ? "Não carregar esta atividade" : "Carregar esta atividade"}
+                className="shrink-0"
+              >
+                {a.included ? <CheckSquare size={16} className="text-brand-primary" /> : <Square size={16} className="text-text-faint" />}
+              </button>
               <span className="text-[11px] text-text-faint font-mono w-5">{idx + 1}</span>
               <div className="flex-1 min-w-0">
-                <div className="text-sm text-text-primary truncate">{a.label}</div>
-                <div className="text-[11px] text-text-muted truncate">{a.description}</div>
+                <input
+                  value={a.label}
+                  onChange={(e) => patch(a.id, { label: e.target.value })}
+                  disabled={!a.included}
+                  aria-label={`Nome da atividade ${idx + 1}`}
+                  className={cn(
+                    "w-full rounded border border-transparent bg-transparent px-1 -mx-1 text-sm text-text-primary hover:border-border focus:border-brand-primary focus:bg-white focus:outline-none",
+                    !a.label.trim() && "border-accent-red"
+                  )}
+                />
+                {a.description && <div className="text-[11px] text-text-muted truncate">{a.description}</div>}
               </div>
-              <ComplexityBadge level={a.complexity} />
-              <LLMImpact level={a.llmImpact} />
+              {a.custom ? (
+                <>
+                  <Badge tone="blue" size="sm">Incluída</Badge>
+                  <button
+                    type="button"
+                    onClick={() => setDrafts((list) => list.filter((d) => d.id !== a.id))}
+                    className="shrink-0 rounded p-1 text-text-faint hover:bg-accent-red/10 hover:text-accent-red"
+                    title="Remover atividade incluída"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <ComplexityBadge level={a.complexity} />
+                  <LLMImpact level={a.llmImpact} />
+                </>
+              )}
             </div>
           ))}
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3 bg-white rounded-b-lg">
+            <Plus size={14} className="text-text-faint" />
+            <Input
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+              placeholder="Nova atividade"
+              className="min-w-[200px] flex-1"
+            />
+            <Input
+              value={newDescription}
+              onChange={(e) => setNewDescription(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustom(); } }}
+              placeholder="Descrição (opcional)"
+              className="min-w-[200px] flex-1"
+            />
+            <Button size="sm" variant="secondary" onClick={addCustom} disabled={!newLabel.trim()}>
+              Incluir
+            </Button>
+          </div>
         </div>
+        {chosenCount === 0 && (
+          <p className="mt-2 text-xs text-accent-amber">
+            Nenhuma atividade marcada: o projeto será criado com o quadro vazio.
+          </p>
+        )}
       </div>
     </div>
   );
