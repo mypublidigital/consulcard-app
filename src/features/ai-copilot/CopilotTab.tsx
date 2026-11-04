@@ -77,6 +77,8 @@ export function CopilotTab({
   /** Etapa atual mostrada enquanto o co-piloto trabalha. */
   const [progress, setProgress] = useState("");
   const [status, setStatus] = useState<ChatStatus>("waiting");
+  /** Documento que o co-piloto está abrindo agora (aba Documentos). */
+  const [readingDoc, setReadingDoc] = useState("");
   const [round, setRound] = useState(1);
   const [elapsed, setElapsed] = useState(0);
   // Anexos aguardando envio (imagem, PDF, Word, PowerPoint, texto).
@@ -318,9 +320,11 @@ export function CopilotTab({
         // Sem a ficha carregada, o agente indica a da Biblioteca que serve ao pedido.
         promptCatalog: prompt ? undefined : promptCatalog,
         tier: prompt?.tier,
+        projectId: project.id,
         signal: controller.signal,
-        onStatus: (s) => {
+        onStatus: (s, detail) => {
           setStatus(s);
+          setReadingDoc(s === "reading" ? detail ?? "" : "");
           if (s === "continuing") setRound((r) => r + 1);
         },
         onText: (t) => {
@@ -479,6 +483,7 @@ export function CopilotTab({
 
   const minutes = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
   const statusLabel = progress
+    || (status === "reading" ? `Lendo “${readingDoc}” dos documentos do projeto…` : "")
     || (status === "continuing" || round > 1
       ? `Resposta longa — escrevendo a parte ${round}…`
       : status === "thinking" ? "Analisando o material…" : "Pensando…");
@@ -524,7 +529,7 @@ export function CopilotTab({
               <div className="flex-1">
                 <div className="rounded-lg border border-border bg-surface px-4 py-2.5 flex items-center gap-2 text-xs text-text-muted">
                   <Loader2 size={13} className="animate-spin text-brand-primary" />
-                  <span className="animate-pulse-soft">{streamingText && !progress && round === 1 ? "Escrevendo…" : statusLabel}</span>
+                  <span className="animate-pulse-soft">{streamingText && !progress && round === 1 && status !== "reading" ? "Escrevendo…" : statusLabel}</span>
                   <span className="ml-auto font-mono text-text-faint">{minutes}</span>
                 </div>
               </div>

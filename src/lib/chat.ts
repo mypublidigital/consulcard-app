@@ -49,14 +49,17 @@ export interface ChatOptions {
   /** Recebe cada trecho assim que chega, para a resposta aparecer enquanto é escrita. */
   onText?: (fullTextSoFar: string) => void;
   /** Etapa atual: "thinking" (raciocinando), "writing", "continuing" (emendando). */
-  onStatus?: (status: ChatStatus) => void;
+  /** detail: nome do documento quando status = "reading". */
+  onStatus?: (status: ChatStatus, detail?: string) => void;
+  /** Projeto do co-piloto: ele pode abrir os documentos da aba Documentos. */
+  projectId?: string;
   /** "Parar" no app (GAP #6): interrompe a resposta e mantém o que já veio. */
   signal?: AbortSignal;
   /** Etapa de continuação: o servidor reduz o raciocínio e só segue escrevendo. */
   continuation?: boolean;
 }
 
-export type ChatStatus = "waiting" | "thinking" | "writing" | "continuing";
+export type ChatStatus = "waiting" | "thinking" | "writing" | "continuing" | "reading";
 
 export interface ChatResult {
   content: string;
@@ -99,6 +102,7 @@ export async function sendChatMessage(messages: ApiMessage[], options: ChatOptio
         tier: options.tier,
         stream: true,
         continuation: options.continuation || undefined,
+        projectId: options.projectId,
       }),
       signal: options.signal,
     });
@@ -133,6 +137,8 @@ export async function sendChatMessage(messages: ApiMessage[], options: ChatOptio
       options.onText?.(content);
     } else if (evt.type === "status" && evt.status === "thinking") {
       options.onStatus?.("thinking");
+    } else if (evt.type === "status" && evt.status === "reading") {
+      options.onStatus?.("reading", evt.document);
     } else if (evt.type === "done") {
       stopReason = evt.stop_reason ?? null;
       model = evt.model ?? null;
